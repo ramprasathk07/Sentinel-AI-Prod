@@ -1,0 +1,15 @@
+diff --git a/README.md b/README.md
+index 4444444..5555555 100644
+--- a/README.md
++++ b/README.md
+@@ -10,6 +10,10 @@ A small utility library.
+
+ ## Installation
+ ```
+ pip install mylib
+ ```
++
++## Usage
++```python
++from mylib import add
++```

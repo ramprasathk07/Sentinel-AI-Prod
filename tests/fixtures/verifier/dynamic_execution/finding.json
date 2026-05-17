@@ -1,0 +1,7 @@
+{
+  "filename": "dyn.py",
+  "technique": "dynamic_execution",
+  "line": 2,
+  "description": "Eval used",
+  "evidence": "eval(PAYLOAD)"
+}

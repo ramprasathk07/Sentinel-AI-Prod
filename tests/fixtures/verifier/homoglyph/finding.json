@@ -1,0 +1,7 @@
+{
+  "filename": "auth.py",
+  "technique": "homoglyph",
+  "line": 1,
+  "description": "Homoglyph attack",
+  "evidence": "def l\u043egin():"
+}

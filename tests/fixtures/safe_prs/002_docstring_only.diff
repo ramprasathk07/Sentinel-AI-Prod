@@ -1,0 +1,11 @@
+diff --git a/lib/util.py b/lib/util.py
+index 1111111..2222222 100644
+--- a/lib/util.py
++++ b/lib/util.py
+@@ -1,4 +1,8 @@
+ def parse_iso(s):
++    """Parse an ISO-8601 timestamp.
++
++    Returns a naive datetime (UTC).
++    """
+     return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")

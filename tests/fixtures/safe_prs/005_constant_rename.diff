@@ -1,0 +1,9 @@
+diff --git a/app/config.py b/app/config.py
+index 6666666..7777777 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -3,5 +3,5 @@
+-DEFAULT_TIMEOUT = 30
++DEFAULT_TIMEOUT_SECS = 30
+ MAX_RETRIES = 3
+ BACKOFF_FACTOR = 0.5

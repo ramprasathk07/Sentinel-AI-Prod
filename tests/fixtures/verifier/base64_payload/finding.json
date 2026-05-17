@@ -1,0 +1,7 @@
+{
+  "filename": "loader.py",
+  "technique": "base64_payload",
+  "line": 1,
+  "description": "Base64 payload",
+  "evidence": "aW1wb3J0IHN5czsgZXhlYygncHJpbnQoMTIzKScpaW1wb3J0IHN5czsgZXhlYygncHJpbnQoMTIzKScpaW1wb3J0IHN5czsgZXhlYygncHJpbnQoMTIzKScp"
+}

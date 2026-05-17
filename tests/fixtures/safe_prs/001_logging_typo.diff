@@ -1,0 +1,9 @@
+diff --git a/app/handlers.py b/app/handlers.py
+index 1234567..abcdef0 100644
+--- a/app/handlers.py
++++ b/app/handlers.py
+@@ -42,7 +42,7 @@ def handle_request(req):
+     user = req.user
+-    logger.info("Recieved request from %s", user.id)
++    logger.info("Received request from %s", user.id)
+     return process(req)

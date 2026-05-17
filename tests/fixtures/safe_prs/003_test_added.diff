@@ -1,0 +1,12 @@
+diff --git a/tests/test_math.py b/tests/test_math.py
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/tests/test_math.py
+@@ -0,0 +1,6 @@
++from app.math import add
++
++
++def test_add():
++    assert add(2, 3) == 5
++    assert add(-1, 1) == 0

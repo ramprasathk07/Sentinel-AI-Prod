@@ -1,0 +1,10 @@
+{
+  "filename": "requirements.txt",
+  "technique": "cve",
+  "line": 1,
+  "cve_id": "CVE-2014-1830",
+  "package_name": "requests",
+  "ecosystem": "PyPI",
+  "description": "CVE in requests",
+  "evidence": "requests==2.6.0"
+}
