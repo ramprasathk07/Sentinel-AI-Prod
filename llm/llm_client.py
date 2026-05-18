@@ -22,6 +22,8 @@ from core.config import settings
 class LLMClient:
     """Unified LLM client supporting Ollama, vLLM, and AISA.one backends."""
 
+    _AUTODETECT_CACHE: dict = {}  # base_url -> resolved_model
+
     def __init__(
         self,
         model: Optional[str] = None,
@@ -30,6 +32,7 @@ class LLMClient:
         api_key: Optional[str] = None,
     ):
         self.backend = backend or settings.LLM_BACKEND
+        self._model_explicit = model is not None and model != ""
 
         if self.backend == "aisa":
             self.model = model or "gpt-4o-mini"
@@ -43,6 +46,32 @@ class LLMClient:
             self.model = model or settings.VERDICT_MODEL
             self.base_url = base_url or settings.OLLAMA_BASE_URL
             self.api_key = ""
+
+    async def _autodetect_served_model(self) -> Optional[str]:
+        """Query OpenAI-compatible /v1/models and return first served model id.
+        Cached per base_url. Returns None if unreachable."""
+        cached = LLMClient._AUTODETECT_CACHE.get(self.base_url)
+        if cached:
+            return cached
+
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        url = f"{self.base_url}/models" if self.base_url.endswith("/v1") else f"{self.base_url}/v1/models"
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(url, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                items = data.get("data") or []
+                if items and isinstance(items, list):
+                    model_id = items[0].get("id")
+                    if model_id:
+                        LLMClient._AUTODETECT_CACHE[self.base_url] = model_id
+                        return model_id
+        except (httpx.HTTPError, ValueError, KeyError):
+            return None
+        return None
 
     async def complete(
         self,
@@ -162,6 +191,13 @@ class LLMClient:
         self, prompt, system_prompt, temperature, max_tokens, json_mode,
     ) -> str:
         """vLLM OpenAI-compatible /v1/chat/completions endpoint."""
+        # Use cached auto-detected model for this base_url if available and
+        # caller did not explicitly request a model. Skips the wasted 404.
+        if not self._model_explicit:
+            cached = LLMClient._AUTODETECT_CACHE.get(self.base_url)
+            if cached:
+                self.model = cached
+
         is_reasoning = self._is_reasoning_model(self.model)
         is_anthropic = self._is_anthropic_model(self.model)
         # Anthropic via OpenAI-compat gateways often rejects/ignores response_format.
@@ -190,10 +226,21 @@ class LLMClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
+        url = f"{self.base_url}/chat/completions" if self.base_url.endswith("/v1") else f"{self.base_url}/v1/chat/completions"
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
-                url = f"{self.base_url}/chat/completions" if self.base_url.endswith("/v1") else f"{self.base_url}/v1/chat/completions"
                 resp = await client.post(url, json=payload, headers=headers)
+
+                # Auto-recover when served model name differs from requested
+                # (eg. AISA_BASE_URL pointed at a self-hosted vLLM serving a
+                # different model id). Query /v1/models, retry once.
+                if resp.status_code == 404 and "does not exist" in resp.text.lower():
+                    detected = await self._autodetect_served_model()
+                    if detected and detected != self.model:
+                        self.model = detected
+                        payload["model"] = detected
+                        resp = await client.post(url, json=payload, headers=headers)
+
                 resp.raise_for_status()
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]

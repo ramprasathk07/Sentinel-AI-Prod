@@ -357,3 +357,39 @@ class PentestReport(BaseModel):
     error: Optional[str] = None
     phase_timings: dict = Field(default_factory=dict)
     phase_data: dict = Field(default_factory=dict)
+
+
+# ── V2 Extensions ─────────────────────────────────────────────
+
+class PentestSeed(BaseModel):
+    source: str = "scan"  # scan | manual
+    repo_url: str
+    target_url: Optional[str] = None
+    hypotheses: List[VulnHypothesis] = Field(default_factory=list)
+    truncation_meta: dict = Field(default_factory=dict)
+
+
+class ReasoningTrace(BaseModel):
+    root_cause: str
+    exploit_path: List[str] = Field(default_factory=list)
+    why_patch_fixes: str
+    residual_risks: List[str] = Field(default_factory=list)
+    lesson: str = ""
+    tags: List[str] = Field(default_factory=list)
+
+
+class ReasoningGenerator(BaseModel):
+    model: str
+    backend: str
+    prompt_sha256: str
+    temperature: float = 0.3
+    tokens_in: int = 0
+    tokens_out: int = 0
+
+
+class ReasoningBlock(BaseModel):
+    generated_at: datetime
+    generator: ReasoningGenerator
+    trace: ReasoningTrace
+    human_edits: Optional[ReasoningTrace] = None
+    confidence_self_reported: float = 0.0

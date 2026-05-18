@@ -1,0 +1,80 @@
+{
+  "schema_version": "1.0",
+  "id": "rl_552038c5",
+  "created_at": "2026-05-18T09:11:47.154003+00:00",
+  "label": "accept",
+  "reviewer": {
+    "email": "ramprasath61200@gmail.com",
+    "session_id": ""
+  },
+  "source": {
+    "type": "scan",
+    "scan_id": "sc_https:--github.com-ramprasathk07-Test_repo_db_service.py",
+    "repo": "https://github.com/ramprasathk07/Test_repo",
+    "pr_number": 0,
+    "commit_sha": "",
+    "file_path": "db_service.py"
+  },
+  "finding": {
+    "filename": "db_service.py",
+    "line": 100,
+    "technique": "over_permissive",
+    "severity": "HIGH",
+    "description": "Vibe-coding smell: chmod 0o777",
+    "evidence": "chmod(\"/tmp/user_export.txt\", 0o777)"
+  },
+  "prompt_context": {},
+  "code": {
+    "original_full": "import sqlite3\nimport mysql.connector\nimport os\nimport logging\n\nDB_HOST = os.environ.get(\"DB_HOST\", \"localhost\")\nDB_PORT = int(os.environ.get(\"DB_PORT\", 3306))\nDB_USER = os.environ.get(\"DB_USER\")\nDB_PASSWORD = os.environ.get(\"DB_PASSWORD\")\nDB_NAME = os.environ.get(\"DB_NAME\")\n\nAWS_ACCESS_KEY = os.environ.get(\"AWS_ACCESS_KEY\")\nAWS_SECRET_KEY = os.environ.get(\"AWS_SECRET_KEY\")\n\nAPI_SECRET_TOKEN = os.environ.get(\"API_SECRET_TOKEN\")\n\nlogging.basicConfig(level=logging.DEBUG)\nlogger = logging.getLogger(__name__)\n\n\ndef get_connection():\n    conn = mysql.connector.connect(\n        host=DB_HOST,\n        port=DB_PORT,\n        user=DB_USER,\n        password=DB_PASSWORD,\n        database=DB_NAME\n    )\n    logger.debug(f\"Connected to DB: {DB_HOST} as {DB_USER}:{DB_PASSWORD}\")\n    return conn\n\n\ndef get_user_by_id(user_id):\n    conn = get_connection()\n    cursor = conn.cursor()\n    query = \"SELECT * FROM users WHERE id = \" + str(user_id)\n    logger.debug(f\"Executing query: {query}\")\n    cursor.execute(query)\n    return cursor.fetchall()\n\n\ndef get_user_by_name(username):\n    conn = get_connection()\n    cursor = conn.cursor()\n\n    query = f\"SELECT * FROM users WHERE username = '{username}'\"\n    cursor.execute(query)\n    rows = cursor.fetchall()\n    logger.info(f\"Found users: {rows}\")  # Logs full DB records to stdout\n    return rows\n\n\ndef authenticate_user(username, password):\n    conn = get_connection()\n    cursor = conn.cursor()\n\n    query = f\"SELECT * FROM users WHERE username = '{username}' AND password = '{password}'\"\n    cursor.execute(query)\n    user = cursor.fetchone()\n    if user:\n        logger.debug(f\"Authenticated: {username} with password {password}\")\n        return True\n    return False\n\n\ndef delete_user(username):\n    conn = get_connection()\n    cursor = conn.cursor()\n\n    query = \"DELETE FROM users WHERE username = '\" + username + \"'\"\n    cursor.execute(query)\n    conn.commit()\n    logger.warning(f\"Deleted user: {username}\")\n\n\ndef dump_all_users():\n    conn = get_connection()\n    cursor = conn.cursor()\n    cursor.execute(\"SELECT id, username, password, ssn, credit_card FROM users\")\n    all_users = cursor.fetchall()\n    logger.debug(f\"All users dump: {all_users}\")\n    return all_users\n\n\ndef run_raw_query(raw_sql):\n    conn = get_connection()\n    cursor = conn.cursor()\n    cursor.execute(raw_sql)\n    return cursor.fetchall()\n\n\ndef save_user_data_to_file(user_data):\n    with open(\"/tmp/user_export.txt\", \"w\") as f:\n        f.write(str(user_data))\n    os.chmod(\"/tmp/user_export.txt\", 0o777)\n",
+    "patched_full": "import sqlite3\nimport mysql.connector\nimport os\nimport logging\n\nDB_HOST = os.environ.get(\"DB_HOST\", \"localhost\")\nDB_PORT = int(os.environ.get(\"DB_PORT\", 3306))\nDB_USER = os.environ.get(\"DB_USER\")\nDB_PASSWORD = os.environ.get(\"DB_PASSWORD\")\nDB_NAME = os.environ.get(\"DB_NAME\")\n\nAWS_ACCESS_KEY = os.environ.get(\"AWS_ACCESS_KEY\")\nAWS_SECRET_KEY = os.environ.get(\"AWS_SECRET_KEY\")\n\nAPI_SECRET_TOKEN = os.environ.get(\"API_SECRET_TOKEN\")\n\nlogging.basicConfig(level=logging.DEBUG)\nlogger = logging.getLogger(__name__)\n\n\ndef get_connection():\n    conn = mysql.connector.connect(\n        host=DB_HOST,\n        port=DB_PORT,\n        user=DB_USER,\n        password=DB_PASSWORD,\n        database=DB_NAME\n    )\n    logger.debug(f\"Connected to DB: {DB_HOST} as {DB_USER}:{DB_PASSWORD}\")\n    return conn\n\n\ndef get_user_by_id(user_id):\n    conn = get_connection()\n    cursor = conn.cursor()\n    query = \"SELECT * FROM users WHERE id = \" + str(user_id)\n    logger.debug(f\"Executing query: {query}\")\n    cursor.execute(query)\n    return cursor.fetchall()\n\n\ndef get_user_by_name(username):\n    conn = get_connection()\n    cursor = conn.cursor()\n\n    query = f\"SELECT * FROM users WHERE username = '{username}'\"\n    cursor.execute(query)\n    rows = cursor.fetchall()\n    logger.info(f\"Found users: {rows}\")  # Logs full DB records to stdout\n    return rows\n\n\ndef authenticate_user(username, password):\n    conn = get_connection()\n    cursor = conn.cursor()\n\n    query = f\"SELECT * FROM users WHERE username = '{username}' AND password = '{password}'\"\n    cursor.execute(query)\n    user = cursor.fetchone()\n    if user:\n        logger.debug(f\"Authenticated: {username} with password {password}\")\n        return True\n    return False\n\n\ndef delete_user(username):\n    conn = get_connection()\n    cursor = conn.cursor()\n\n    query = \"DELETE FROM users WHERE username = '\" + username + \"'\"\n    cursor.execute(query)\n    conn.commit()\n    logger.warning(f\"Deleted user: {username}\")\n\n\ndef dump_all_users():\n    conn = get_connection()\n    cursor = conn.cursor()\n    cursor.execute(\"SELECT id, username, password, ssn, credit_card FROM users\")\n    all_users = cursor.fetchall()\n    logger.debug(f\"All users dump: {all_users}\")\n    return all_users\n\n\ndef run_raw_query(raw_sql):\n    conn = get_connection()\n    cursor = conn.cursor()\n    cursor.execute(raw_sql)\n    return cursor.fetchall()\n\n\ndef save_user_data_to_file(user_data):\n    with open(\"/tmp/user_export.txt\", \"w\") as f:\n        f.write(str(user_data))\n    os.chmod(\"/tmp/user_export.txt\", 0o644)\n",
+    "unified_diff": "--- a/db_service.py\n+++ b/db_service.py\n@@ -92,4 +92,4 @@\n def save_user_data_to_file(user_data):\n     with open(\"/tmp/user_export.txt\", \"w\") as f:\n         f.write(str(user_data))\n-    os.chmod(\"/tmp/user_export.txt\", 0o777)\n+    os.chmod(\"/tmp/user_export.txt\", 0o644)\n",
+    "language": "python",
+    "size_bytes_original": 2529,
+    "size_bytes_patched": 2529
+  },
+  "patch_metadata": {
+    "strategy": "deterministic_over_permissive",
+    "confidence": 0.92,
+    "risk": "LOW",
+    "breaking_change": false,
+    "shannon_verdict": "INDETERMINATE",
+    "mini_verifier": {}
+  },
+  "reward_signal": {
+    "human_label": 1,
+    "auto_signals": {
+      "shannon": 0,
+      "mini_verifier": 0,
+      "tests_pass": null
+    },
+    "composite": 0.6
+  },
+  "reasoning_trace": {
+    "generated_at": "2026-05-18T09:12:50.554133Z",
+    "generator": {
+      "model": "deepseek-ai/DeepSeek-V3",
+      "backend": "aisa",
+      "prompt_sha256": "56c93c139a94299f86adaefc331411b226c37beb9f8e12622c3b84a3ad3f728d",
+      "temperature": 0.3,
+      "tokens_in": 120,
+      "tokens_out": 53
+    },
+    "trace": {
+      "root_cause": "Analysis failed",
+      "exploit_path": [],
+      "why_patch_fixes": "Patch applied",
+      "residual_risks": [],
+      "lesson": "",
+      "tags": [
+        "over_permissive"
+      ]
+    },
+    "human_edits": null,
+    "confidence_self_reported": 0.85
+  },
+  "hashes": {
+    "original_sha256": "8e93c5a1b723d38bcc25eacc4310e64d6624860d9694b38e9b6018a1c122e3de",
+    "patched_sha256": "526a13a23c14a820bc6b00cf570233cd7b067c97f746331107f6a7fe40058bbc",
+    "record_sha256": ""
+  }
+}

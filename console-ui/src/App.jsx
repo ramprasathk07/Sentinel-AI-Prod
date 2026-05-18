@@ -11,14 +11,53 @@ import AnalyticsView from './components/AnalyticsView';
 import ReportsView from './components/ReportsView';
 import ScannerCPG from './components/ScannerCPG';
 import PentestView from './components/PentestView';
+import GitHubConnect from './components/GitHubConnect';
+import DataCollectionView from './components/DataCollectionView';
 import { useAuth } from './lib/AuthContext';
 import { API_BASE } from './lib/api';
 import { openReportWindow } from './lib/reportBuilder';
 import CodeWindow from './components/CodeWindow';
+import UnifiedDiff from './components/UnifiedDiff';
 
 function ScanView({ data, loading, error, onScan, onApplyFix, onGenerateReport, onViewGraph, llmConfig, patching, setPatching, patchResults, setPatchResults, repo, setRepo, pr, setPr }) {
   const [activeAgent, setActiveAgent] = useState('ss');
   const [includeCpg, setIncludeCpg] = useState(false);
+  const { ghToken, user } = useAuth();
+  const [pushingReport, setPushingReport] = useState(false);
+
+  const pushCumulativeReport = async () => {
+    if (!data?.meta?.repo || !data?.meta?.pr) {
+      alert('No active scan details found.');
+      return;
+    }
+    if (!user?.email) {
+      alert('Please log in with Google first.');
+      return;
+    }
+    
+    setPushingReport(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/github/push-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo: data.meta.repo,
+          pr_number: parseInt(data.meta.pr),
+          email: user.email
+        })
+      });
+      const d = await res.json();
+      if (res.ok) {
+        alert(d.message || 'Cumulative report successfully pushed to GitHub Checks tab!');
+      } else {
+        alert('Failed to push report: ' + (d.detail || d.error || 'Unknown error'));
+      }
+    } catch (err) {
+      alert('Error pushing report: ' + err.message);
+    } finally {
+      setPushingReport(false);
+    }
+  };
 
   if (!data && !loading && !error) {
     return (
@@ -58,7 +97,21 @@ function ScanView({ data, loading, error, onScan, onApplyFix, onGenerateReport, 
   const patches = {};
   (data.findings || []).forEach(f => {
     const loc = `${f.file || '?'}:${f.line || '?'}`;
-    patches[loc] = { _finding: { filename: f.file, line: f.line, technique: f.tech, severity: f.severity, description: f.plain, evidence: f.before }, strategy: f.tech || 'manual_review', before: f.before || '', _evidence: f.before || '', after: f.after || '' };
+    const fullSource = data.shadow_stalker_findings?.file_reports?.[f.file]?.source || f.before || '';
+    patches[loc] = { 
+      _finding: { 
+        filename: f.file, 
+        line: f.line, 
+        technique: f.tech, 
+        severity: f.severity, 
+        description: f.plain, 
+        evidence: f.before 
+      }, 
+      strategy: f.tech || 'manual_review', 
+      before: fullSource, 
+      _evidence: f.before || '', 
+      after: f.after || '' 
+    };
   });
 
   const requestPatch = (loc) => {
@@ -68,7 +121,15 @@ function ScanView({ data, loading, error, onScan, onApplyFix, onGenerateReport, 
     if (!spec?._finding) { setTimeout(() => setPatching(p => ({ ...p, [loc]: 'done' })), 1500); return; }
     fetch(`${API_BASE}/api/v1/patch`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ finding_json: JSON.stringify(spec._finding), source_code: spec.before || '', filename: spec._finding.filename || 'unknown', repo: data.meta?.repo || '', ...(llmConfig || {}) }),
+      body: JSON.stringify({
+        finding_json: JSON.stringify(spec._finding),
+        source_code: spec.before || '',
+        filename: spec._finding.filename || 'unknown',
+        repo: data.meta?.repo || '',
+        github_token: ghToken || null,
+        user_email: user?.email || null,
+        ...(llmConfig || {}),
+      }),
     }).then(r => r.json()).then(d => {
       const best = d.selected_fix || d.best_candidate || {};
       const patch = best.patch || {};
@@ -114,9 +175,12 @@ function ScanView({ data, loading, error, onScan, onApplyFix, onGenerateReport, 
             <div className="pf-empty"><div className="pf-icon">🛠</div><div>No fixable issues found.</div></div>
           ) : (
             <>
-              <div className="pf-cta">
-                <div className="pf-cta-title">Generate safe fixes for all issues</div>
+              <div className="pf-cta" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <div className="pf-cta-title" style={{ marginRight: 'auto' }}>Generate safe fixes for all issues</div>
                 <button className="btn-accent" onClick={() => patchLocs.filter(l => !patching[l] && !patchResults[l]).forEach(l => requestPatch(l))} disabled={patchLocs.every(l => patching[l] || patchResults[l])}>Generate {patchLocs.length} patch{patchLocs.length !== 1 ? 'es' : ''}</button>
+                <button className="btn-primary" style={{ padding: '10px 20px', background: 'var(--accent)', borderColor: 'transparent' }} onClick={pushCumulativeReport} disabled={pushingReport}>
+                  {pushingReport ? 'Pushing...' : 'Push Cumulative Report to GitHub'}
+                </button>
               </div>
               {patchLocs.map(loc => {
                 const state = patching[loc]; const live = patchResults[loc];
@@ -130,72 +194,78 @@ function ScanView({ data, loading, error, onScan, onApplyFix, onGenerateReport, 
                     {state === 'error' && <div style={{ color: 'var(--crit)', fontSize: 13, marginTop: 10 }}>PatchForge failed. <button className="btn-link" onClick={() => requestPatch(loc)}>Retry</button></div>}
                     {(state === 'done' || (!state && live)) && live && (
                       <>
-                        <div className="pf-dual" style={{ marginTop: 10 }}>
-                          <div className="pf-pane">
-                            <div className="pf-pane-h bad">Before</div>
-                            <CodeWindow source={live.before || ''} focusLine={live.target_line} context={5} variant="bad" />
+                        <div style={{ marginTop: 10 }}>
+                          <div className="pf-pane-h" style={{ display: 'flex', gap: 12 }}>
+                            <span className="bad">− Before</span>
+                            <span className="good">+ After</span>
+                            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-3)' }}>line {live.target_line || '?'}</span>
                           </div>
-                          <div className="pf-pane">
-                            <div className="pf-pane-h good">After · line {live.target_line || '?'}</div>
-                            <CodeWindow source={live.after || live.before || ''} focusLine={live.target_line} context={5} variant={live.after ? "good" : "bad"} />
-                          </div>
-                        </div>
-                        <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
-                          <button className="btn-primary" style={{ padding: '8px 16px', fontSize: 12, background: 'var(--accent)', borderColor: 'transparent' }} onClick={() => {
-                            if (confirm(`Are you sure you want to overwrite ${live.filename} in your local workspace?`)) {
-                              fetch(`${API_BASE}/api/v1/apply-local-patch`, {
+                          {live.after && live.after !== live.before ? (
+                            <UnifiedDiff before={live.before || ''} after={live.after} contextLines={1} focusLine={live.target_line} />
+                          ) : (
+                            <div style={{ padding: 10, color: 'var(--crit)', fontSize: 12 }}>
+                              PatchForge returned no usable change. Try regenerating or pick a different model.
+                            </div>
+                          )}
+                          {live.after && live.after !== live.before && (
+                          <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
+                            <button className="btn-primary" style={{ padding: '8px 16px', fontSize: 12, background: 'var(--accent)', borderColor: 'transparent' }} onClick={() => {
+                              if (confirm(`Are you sure you want to overwrite ${live.filename} in your local workspace?`)) {
+                                fetch(`${API_BASE}/api/v1/apply-local-patch`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    filename: live.filename,
+                                    patched_source: live.after
+                                  })
+                                }).then(r => r.json()).then(d => {
+                                  if (d.status === 'success') alert('Success! File patched in your local workspace.');
+                                  else alert('Failed to patch file: ' + (d.error || d.detail));
+                                });
+                              }
+                            }}>Apply to Local File</button>
+                            <button className="btn-ghost" style={{ padding: '8px 16px', fontSize: 12 }} onClick={() => {
+                              window.dispatchEvent(new CustomEvent('sentinel:open-fix-pr', { 
+                                detail: { 
+                                  fix: {
+                                    filename: live.filename,
+                                    patched_source: live.after,
+                                    fix_strategy: live.strategy,
+                                    fix_description: live.description,
+                                    blocklist_verdict: live.blocklist,
+                                    shannon_verdict: live.shannon
+                                  },
+                                  file: live.filename,
+                                  line: live.target_line,
+                                  tech: live.strategy,
+                                  severity: 'HIGH', // Fallback
+                                  plain: live.description,
+                                  before: live.before
+                                } 
+                              }));
+                            }}>Open Remediation PR</button>
+                            <button className="btn-accent" style={{ padding: '8px 16px', fontSize: 12, background: 'var(--low)', borderColor: 'transparent' }} onClick={() => {
+                              if (!ghToken) { alert('GitHub token required'); return; }
+                              fetch(`${API_BASE}/api/v1/suggest-fix`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
+                                  repo: scanData.meta.repo,
+                                  pr_number: parseInt(scanData.meta.pr),
                                   filename: live.filename,
-                                  patched_source: live.after
+                                  line: live.target_line,
+                                  patched_code: live.after,
+                                  description: live.description,
+                                  github_token: ghToken
                                 })
                               }).then(r => r.json()).then(d => {
-                                if (d.status === 'success') alert('Success! File patched in your local workspace.');
-                                else alert('Failed to patch file: ' + (d.error || d.detail));
+                                if (d.status === 'success') alert('Suggestion posted to GitHub!');
+                                else alert('Failed to post suggestion: ' + (d.error || d.detail));
                               });
-                            }
-                          }}>Apply to Local File</button>
-                          <button className="btn-ghost" style={{ padding: '8px 16px', fontSize: 12 }} onClick={() => {
-                            window.dispatchEvent(new CustomEvent('sentinel:open-fix-pr', { 
-                              detail: { 
-                                fix: {
-                                  filename: live.filename,
-                                  patched_source: live.after,
-                                  fix_strategy: live.strategy,
-                                  fix_description: live.description,
-                                  blocklist_verdict: live.blocklist,
-                                  shannon_verdict: live.shannon
-                                },
-                                file: live.filename,
-                                line: live.target_line,
-                                tech: live.strategy,
-                                severity: 'HIGH', // Fallback
-                                plain: live.description,
-                                before: live.before
-                              } 
-                            }));
-                          }}>Open Remediation PR</button>
-                          <button className="btn-accent" style={{ padding: '8px 16px', fontSize: 12, background: 'var(--low)', borderColor: 'transparent' }} onClick={() => {
-                            if (!ghToken) { alert('GitHub token required'); return; }
-                            fetch(`${API_BASE}/api/v1/suggest-fix`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                repo: scanData.meta.repo,
-                                pr_number: parseInt(scanData.meta.pr),
-                                filename: live.filename,
-                                line: live.target_line,
-                                patched_code: live.after,
-                                description: live.description,
-                                github_token: ghToken
-                              })
-                            }).then(r => r.json()).then(d => {
-                              if (d.status === 'success') alert('Suggestion posted to GitHub!');
-                              else alert('Failed to post suggestion: ' + (d.error || d.detail));
-                            });
-                          }}>Post Suggestion to GitHub</button>
-                          <button className="btn-ghost" style={{ padding: '8px 16px', fontSize: 12 }} onClick={() => setDiffFinding({ ...live, file: live.filename, line: live.target_line })}>Compare Side-by-Side</button>
+                            }}>Post Suggestion to GitHub</button>
+                            <button className="btn-ghost" style={{ padding: '8px 16px', fontSize: 12 }} onClick={() => setDiffFinding({ ...live, file: live.filename, line: live.target_line })}>Compare Side-by-Side</button>
+                          </div>
+                        )}
                         </div>
                       </>
                     )}
@@ -246,15 +316,18 @@ function DiffModal({ finding, onClose }) {
           <h2 style={{ margin: 0, fontSize: 16 }}>Diff · {finding.file}{finding.line ? `:${finding.line}` : ''}</h2>
           <button className="btn-ghost" style={{ marginLeft: 'auto' }} onClick={onClose}>Close</button>
         </div>
-        <div className="pf-dual">
-          <div className="pf-pane">
-            <div className="pf-pane-h bad">Before · line {finding.line || '?'}</div>
-            <CodeWindow source={finding.before || ''} focusLine={finding.line} context={10} variant="bad" />
+        <div>
+          <div className="pf-pane-h" style={{ display: 'flex', gap: 12 }}>
+            <span className="bad">− Before</span>
+            <span className="good">+ After</span>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-3)' }}>line {finding.line || '?'}</span>
           </div>
-          <div className="pf-pane">
-            <div className="pf-pane-h good">After · line {finding.line || '?'}</div>
-            <CodeWindow source={finding.after || finding.fix?.patched_source || ''} focusLine={finding.line} context={10} variant="good" />
-          </div>
+          <UnifiedDiff
+            before={finding.before || ''}
+            after={finding.after || finding.fix?.patched_source || ''}
+            contextLines={1}
+            focusLine={finding.line}
+          />
         </div>
         {finding.fix?.desc && (
           <div style={{ marginTop: 14, color: 'var(--text-2)', fontSize: 13 }}>{finding.fix.desc}</div>
@@ -509,12 +582,14 @@ function App() {
       <div className="app-main">
         <Header tab={tab} />
         <div className="app-content">
-          {user && !ghToken && <TokenSetup />}
-          {(!user || ghToken) && (
+          {user && !ghToken && tab !== 'github' && tab !== 'dataCollection' && <TokenSetup />}
+          {(!user || ghToken || tab === 'github' || tab === 'dataCollection') && (
             <>
               {tab === 'scan' && <ScanView data={scanData} loading={loading} error={error} onScan={handleScan} onApplyFix={handleApplyFix} onGenerateReport={handleGenerateReport} onViewGraph={(g) => { setPreloadedGraph(g); setTab('cpg'); }} llmConfig={{ llm_provider: provider, llm_model: model === 'local-default' ? null : model, llm_key: provider === 'aisa' ? aisaKey : null }} patching={patching} setPatching={setPatching} patchResults={patchResults} setPatchResults={setPatchResults} repo={repo} setRepo={setRepo} pr={pr} setPr={setPr} />}
               {tab === 'repo' && <RepoView />}
               {tab === 'watch' && <WatchView />}
+              {tab === 'github' && <GitHubConnect />}
+              {tab === 'dataCollection' && <DataCollectionView />}
               {tab === 'history' && <HistoryView />}
               {tab === 'analytics' && <AnalyticsView />}
               {tab === 'tests' && <TestsView />}

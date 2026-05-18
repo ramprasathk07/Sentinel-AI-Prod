@@ -1,0 +1,77 @@
+{
+  "schema_version": "1.0",
+  "id": "rl_5351e591",
+  "created_at": "2026-05-18T07:20:05.709185+00:00",
+  "label": "pending",
+  "reviewer": {
+    "email": "",
+    "session_id": ""
+  },
+  "source": {
+    "type": "scan",
+    "scan_id": "sc_https:--github.com-ramprasathk07-Test_repo-_db_service.py",
+    "repo": "https://github.com/ramprasathk07/Test_repo/",
+    "pr_number": 0,
+    "commit_sha": "",
+    "file_path": "db_service.py"
+  },
+  "finding": {
+    "filename": "db_service.py",
+    "line": 10,
+    "technique": "encoded_shell",
+    "severity": "HIGH",
+    "description": "Potential hardcoded secret or API key",
+    "evidence": "DB_PASSWORD = \"SuperSecret@123!\""
+  },
+  "prompt_context": {},
+  "code": {
+    "original_full": "DB_PASSWORD = \"SuperSecret@123!\"",
+    "patched_full": "import os\n\nDB_PASSWORD = os.getenv(\"DB_PASSWORD\", \"\")\n",
+    "unified_diff": "--- a/db_service.py\n+++ b/db_service.py\n@@ -1 +1,3 @@\n-DB_PASSWORD = \"SuperSecret@123!\"+import os\n+\n+DB_PASSWORD = os.getenv(\"DB_PASSWORD\", \"\")\n",
+    "language": "python",
+    "size_bytes_original": 32,
+    "size_bytes_patched": 54
+  },
+  "patch_metadata": {
+    "strategy": "Environment Variable Replacement",
+    "confidence": 1.0,
+    "risk": "LOW",
+    "breaking_change": false,
+    "shannon_verdict": "INDETERMINATE",
+    "mini_verifier": {}
+  },
+  "reward_signal": {},
+  "reasoning_trace": {
+    "generated_at": "2026-05-18T07:31:38.484640Z",
+    "generator": {
+      "model": "static-stub",
+      "backend": "none",
+      "prompt_sha256": "",
+      "temperature": 0.0,
+      "tokens_in": 0,
+      "tokens_out": 0
+    },
+    "trace": {
+      "root_cause": "Potential hardcoded secret or API key",
+      "exploit_path": [
+        "Attacker exploits encoded_shell"
+      ],
+      "why_patch_fixes": "Removes the vulnerability pattern",
+      "residual_risks": [
+        "Static fallback \u2014 requires human review"
+      ],
+      "lesson": "Always validate input and follow secure coding practices.",
+      "tags": [
+        "encoded_shell",
+        "static_fallback"
+      ]
+    },
+    "human_edits": null,
+    "confidence_self_reported": 0.0
+  },
+  "hashes": {
+    "original_sha256": "cb0a268668d98f1b8019e3ac184d0c869a3e789c9272cd4a8b3dc4e1733eddb5",
+    "patched_sha256": "e706e4b081bedcf1fc30a38b46530fca03064e9cf33b66d8b705c98c1c1d7e36",
+    "record_sha256": ""
+  }
+}

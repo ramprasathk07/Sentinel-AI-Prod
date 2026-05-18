@@ -1,0 +1,80 @@
+{
+  "schema_version": "1.0",
+  "id": "rl_8eb977d8",
+  "created_at": "2026-05-18T07:19:46.759217+00:00",
+  "label": "pending",
+  "reviewer": {
+    "email": "",
+    "session_id": ""
+  },
+  "source": {
+    "type": "scan",
+    "scan_id": "sc_ramprasathk07-Test_repo_3",
+    "repo": "ramprasathk07/Test_repo",
+    "pr_number": 0,
+    "commit_sha": "",
+    "file_path": "db_service.py"
+  },
+  "finding": {
+    "type": "dangerous_import",
+    "pattern": "os",
+    "line": 3,
+    "severity": "MEDIUM",
+    "description": "Import of security-sensitive module: os",
+    "filename": "db_service.py",
+    "before": "import os",
+    "stage": "stage1",
+    "technique": "obfuscated_import"
+  },
+  "prompt_context": {},
+  "code": {
+    "original_full": "import sqlite3\nimport mysql.connector\nimport os\nimport logging\n\n# Hardcoded credentials \u2014 intentional vulnerability for reviewer test\nDB_HOST = \"prod-db.internal.company.com\"\nDB_PORT = 3306\nDB_USER = \"admin\"\nDB_PASSWORD = \"SuperSecret@123!\"\nDB_NAME = \"users_production\"\n\nAWS_ACCESS_KEY = \"AKIAIOSFODNN7EXAMPLE\"\nAWS_SECRET_KEY = \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"\n\nAPI_SECRET_TOKEN = \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.secret.payload\"\n\nlogging.basicConfig(level=logging.DEBUG)\nlogger = logging.getLogger(__name__)\n\n\ndef get_connection():\n    conn = mysql.connector.connect(\n        host=DB_HOST,\n        port=DB_PORT,\n        user=DB_USER,\n        password=DB_PASSWORD,\n        database=DB_NAME\n    )\n    logger.debug(f\"Connected to DB: {DB_HOST} as {DB_USER}:{DB_PASSWORD}\")\n    return conn\n\n\ndef get_user_by_id(user_id):\n    conn = get_connection()\n    cursor = conn.cursor()\n    # SQL Injection vulnerability \u2014 user input directly concatenated\n    query = \"SELECT * FROM users WHERE id = \" + str(user_id)\n    logger.debug(f\"Executing query: {query}\")\n    cursor.execute(query)\n    return cursor.fetchall()\n\n\ndef get_user_by_name(username):\n    conn = get_connection()\n    cursor = conn.cursor()\n    # SQL Injection via f-string\n    query = f\"SELECT * FROM users WHERE username = '{username}'\"\n    cursor.execute(query)\n    rows = cursor.fetchall()\n    logger.info(f\"Found users: {rows}\")  # Logs full DB records to stdout\n    return rows\n\n\ndef authenticate_user(username, password):\n    conn = get_connection()\n    cursor = conn.cursor()\n    # Auth bypass via SQL injection\n    query = f\"SELECT * FROM users WHERE username = '{username}' AND password = '{password}'\"\n    cursor.execute(query)\n    user = cursor.fetchone()\n    if user:\n        logger.debug(f\"Authenticated: {username} with password {password}\")\n        return True\n    return False\n\n\ndef delete_user(username):\n    conn = get_connection()\n    cursor = conn.cursor()\n    # No auth check, no soft-delete, direct string concat\n    query = \"DELETE FROM users WHERE username = '\" + username + \"'\"\n    cursor.execute(query)\n    conn.commit()\n    logger.warning(f\"Deleted user: {username}\")\n\n\ndef dump_all_users():\n    conn = get_connection()\n    cursor = conn.cursor()\n    cursor.execute(\"SELECT id, username, password, ssn, credit_card FROM users\")\n    all_users = cursor.fetchall()\n    # Dumps PII + passwords to log\n    logger.debug(f\"All users dump: {all_users}\")\n    return all_users\n\n\ndef run_raw_query(raw_sql):\n    # Executes arbitrary SQL from caller \u2014 no sanitization\n    conn = get_connection()\n    cursor = conn.cursor()\n    cursor.execute(raw_sql)\n    return cursor.fetchall()\n\n\ndef save_user_data_to_file(user_data):\n    # Writes sensitive data to world-readable temp file\n    with open(\"/tmp/user_export.txt\", \"w\") as f:\n        f.write(str(user_data))\n    os.chmod(\"/tmp/user_export.txt\", 0o777)",
+    "patched_full": "import sqlite3\nimport mysql.connector\nimport logging\n\n# Hardcoded credentials \u2014 intentional vulnerability for reviewer test\nDB_HOST = \"prod-db.internal.company.com\"\nDB_PORT = 3306\nDB_USER = \"admin\"\nDB_PASSWORD = \"SuperSecret@123!\"\nDB_NAME = \"users_production\"\n\nAWS_ACCESS_KEY = \"AKIAIOSFODNN7EXAMPLE\"\nAWS_SECRET_KEY = \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"\n\nAPI_SECRET_TOKEN = \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.secret.payload\"\n\nlogging.basicConfig(level=logging.DEBUG)\nlogger = logging.getLogger(__name__)\n\ndef get_connection():\n    conn = mysql.connector.connect(\n        host=DB_HOST,\n        port=DB_PORT,\n        user=DB_USER,\n        password=DB_PASSWORD,\n        database=DB_NAME\n    )\n    logger.debug(f\"Connected to DB: {DB_HOST} as {DB_USER}:{DB_PASSWORD}\")\n    return conn\n\ndef get_user_by_id(user_id):\n    conn = get_connection()\n    cursor = conn.cursor()\n    # SQL Injection vulnerability \u2014 user input directly concatenated\n    query = \"SELECT * FROM users WHERE id = \" + str(user_id)\n    logger.debug(f\"Executing query: {query}\")\n    cursor.execute(query)\n    return cursor.fetchall()\n\ndef get_user_by_name(username):\n    conn = get_connection()\n    cursor = conn.cursor()\n    # SQL Injection via f-string\n    query = f\"SELECT * FROM users WHERE username = '{username}'\"\n    cursor.execute(query)\n    rows = cursor.fetchall()\n    logger.info(f\"Found users: {rows}\")  # Logs full DB records to stdout\n    return rows\n\ndef authenticate_user(username, password):\n    conn = get_connection()\n    cursor = conn.cursor()\n    # Auth bypass via SQL injection\n    query = f\"SELECT * FROM users WHERE username = '{username}' AND password = '{password}'\"\n    cursor.execute(query)\n    user = cursor.fetchone()\n    if user:\n        logger.debug(f\"Authenticated: {username} with password {password}\")\n        return True\n    return False\n\ndef delete_user(username):\n    conn = get_connection()\n    cursor = conn.cursor()\n    # No auth check, no soft-delete, direct string concat\n    query = \"DELETE FROM users WHERE username = '\" + username + \"'\"\n    cursor.execute(query)\n    conn.commit()\n    logger.warning(f\"Deleted user: {username}\")\n\ndef dump_all_users():\n    conn = get_connection()\n    cursor = conn.cursor()\n    cursor.execute(\"SELECT id, username, password, ssn, credit_card FROM users\")\n    all_users = cursor.fetchall()\n    # Dumps PII + passwords to log\n    logger.debug(f\"All users dump: {all_users}\")\n    return all_users\n\ndef run_raw_query(raw_sql):\n    # Executes arbitrary SQL from caller \u2014 no sanitization\n    conn = get_connection()\n    cursor = conn.cursor()\n    cursor.execute(raw_sql)\n    return cursor.fetchall()\n\ndef save_user_data_to_file(user_data):\n    # Writes sensitive data to world-readable temp file\n    with open(\"/tmp/user_export.txt\", \"w\") as f:\n        f.write(str(user_data))\n    # Removed os.chmod to prevent security risk",
+    "unified_diff": "--- a/db_service.py\n+++ b/db_service.py\n@@ -1,6 +1,5 @@\n import sqlite3\n import mysql.connector\n-import os\n import logging\n \n # Hardcoded credentials \u2014 intentional vulnerability for reviewer test\n@@ -18,7 +17,6 @@\n logging.basicConfig(level=logging.DEBUG)\n logger = logging.getLogger(__name__)\n \n-\n def get_connection():\n     conn = mysql.connector.connect(\n         host=DB_HOST,\n@@ -30,7 +28,6 @@\n     logger.debug(f\"Connected to DB: {DB_HOST} as {DB_USER}:{DB_PASSWORD}\")\n     return conn\n \n-\n def get_user_by_id(user_id):\n     conn = get_connection()\n     cursor = conn.cursor()\n@@ -39,7 +36,6 @@\n     logger.debug(f\"Executing query: {query}\")\n     cursor.execute(query)\n     return cursor.fetchall()\n-\n \n def get_user_by_name(username):\n     conn = get_connection()\n@@ -50,7 +46,6 @@\n     rows = cursor.fetchall()\n     logger.info(f\"Found users: {rows}\")  # Logs full DB records to stdout\n     return rows\n-\n \n def authenticate_user(username, password):\n     conn = get_connection()\n@@ -64,7 +59,6 @@\n         return True\n     return False\n \n-\n def delete_user(username):\n     conn = get_connection()\n     cursor = conn.cursor()\n@@ -73,7 +67,6 @@\n     cursor.execute(query)\n     conn.commit()\n     logger.warning(f\"Deleted user: {username}\")\n-\n \n def dump_all_users():\n     conn = get_connection()\n@@ -84,7 +77,6 @@\n     logger.debug(f\"All users dump: {all_users}\")\n     return all_users\n \n-\n def run_raw_query(raw_sql):\n     # Executes arbitrary SQL from caller \u2014 no sanitization\n     conn = get_connection()\n@@ -92,9 +84,8 @@\n     cursor.execute(raw_sql)\n     return cursor.fetchall()\n \n-\n def save_user_data_to_file(user_data):\n     # Writes sensitive data to world-readable temp file\n     with open(\"/tmp/user_export.txt\", \"w\") as f:\n         f.write(str(user_data))\n-    os.chmod(\"/tmp/user_export.txt\", 0o777)+    # Removed os.chmod to prevent security risk",
+    "language": "python",
+    "size_bytes_original": 2884,
+    "size_bytes_patched": 2870
+  },
+  "patch_metadata": {
+    "strategy": "remove_dangerous_import",
+    "confidence": 1.0,
+    "risk": "HIGH",
+    "breaking_change": false,
+    "shannon_verdict": "INDETERMINATE",
+    "mini_verifier": {}
+  },
+  "reward_signal": {},
+  "reasoning_trace": {
+    "generated_at": "2026-05-18T07:31:34.554319Z",
+    "generator": {
+      "model": "static-stub",
+      "backend": "none",
+      "prompt_sha256": "",
+      "temperature": 0.0,
+      "tokens_in": 0,
+      "tokens_out": 0
+    },
+    "trace": {
+      "root_cause": "Import of security-sensitive module: os",
+      "exploit_path": [
+        "Attacker exploits obfuscated_import"
+      ],
+      "why_patch_fixes": "Removes the vulnerability pattern",
+      "residual_risks": [
+        "Static fallback \u2014 requires human review"
+      ],
+      "lesson": "Always validate input and follow secure coding practices.",
+      "tags": [
+        "obfuscated_import",
+        "static_fallback"
+      ]
+    },
+    "human_edits": null,
+    "confidence_self_reported": 0.0
+  },
+  "hashes": {
+    "original_sha256": "13b5368066ac39382913599d84348556edc7aaadeb24e007c27a6887e9b25523",
+    "patched_sha256": "92de018d91a7945536bca64e8f447f5b036088dd1237d2252a08aa982f9cb77e",
+    "record_sha256": ""
+  }
+}

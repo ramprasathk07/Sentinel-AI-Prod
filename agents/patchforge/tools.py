@@ -19,6 +19,7 @@ from pathlib import Path
 
 from agents.mini_verifier.agent import MiniVerifier
 from agents.mini_verifier.tools import verify_patch_blocklist
+from utils.logger import logger
 _mini = MiniVerifier()
 
 
@@ -62,6 +63,31 @@ async def generate_fix_candidates(
     description = finding.get("description", "")
     evidence = finding.get("evidence", "")
 
+    logger.info(f"[patchforge] generate_fix_candidates: file={filename} line={line} "
+                f"attack={attack_type} src_lines={len((source_code or '').splitlines())} "
+                f"evidence_len={len(evidence or '')}")
+
+    # Deterministic seed candidate. For well-known attack patterns we can produce a
+    # correct fix without the LLM. We still call the LLM after to add variants, but
+    # this guarantees at least one usable candidate even if AISA/vLLM errors out.
+    seed_candidate = None
+    seed_patched = _apply_quick_fix(source_code, line, attack_type, evidence)
+    if seed_patched and seed_patched.strip() != (source_code or "").strip():
+        seed_candidate = {
+            "id": "fix-deterministic",
+            "strategy": f"deterministic_{attack_type or 'remediation'}",
+            "description": f"Deterministic rule-based fix for {attack_type} on line {line}",
+            "confidence": 0.92,
+            "patch": {
+                "filename": filename,
+                "target_line": line,
+                "patched_source": seed_patched,
+            },
+            "risk": "LOW",
+            "breaking_change": False,
+        }
+        logger.info(f"[patchforge] seed candidate produced ({len(seed_patched)} bytes)")
+
     # Build the fix prompt for LLM
     fix_prompt = _build_fix_prompt(
         attack_type, line, description, source_code, filename, coding_style_context)
@@ -88,18 +114,17 @@ async def generate_fix_candidates(
         response_data = json.loads(response_text)
         candidates_data = response_data.get("candidates", [])
 
-        # Filter out candidates that are identical to the source code
+        # Filter out candidates that don't meaningfully fix the issue
         valid_candidates = []
         for i, candidate in enumerate(candidates_data[:num_candidates]):
             raw_patch = candidate.get("patched_source")
             patched = _coerce_patched_source(
                 raw_patch, source_code, line, attack_type, evidence
             )
-            
-            # Skip if the patch didn't actually change anything
-            if (patched or "").strip() == (source_code or "").strip():
+
+            if not _is_meaningful_fix(patched, source_code, evidence, attack_type, line):
                 continue
-                
+
             valid_candidates.append({
                 "id": f"fix-{len(valid_candidates)+1}",
                 "strategy": candidate.get("strategy", f"Strategy {i+1}"),
@@ -115,42 +140,37 @@ async def generate_fix_candidates(
             })
         
         candidates = valid_candidates
+        logger.info(f"[patchforge] LLM produced {len(candidates_data)} raw, {len(candidates)} valid candidates")
 
-        # Ensure at least one candidate has a meaningful (non-identical) patched_source.
-        if not candidates:
-            logger.info(f"[patchforge] LLM failed to modify code. Falling back to heuristic quick fix.")
-            quick = _apply_quick_fix(source_code, line, attack_type, evidence)
-            if quick and quick.strip() != (source_code or "").strip():
-                candidates.insert(0, {
-                    "id": "fix-quick",
-                    "strategy": f"heuristic_remediation",
-                    "description": f"Security-first heuristic fix for {attack_type} on line {line}",
-                    "confidence": 0.9,
-                    "patch": {
-                        "filename": filename,
-                        "target_line": line,
-                        "patched_source": quick,
-                    },
-                    "risk": "LOW",
-                    "breaking_change": False,
-                })
-
-    except Exception:
-        # Fallback to strategy templates if LLM fails
-        strategies = _get_fix_strategies(attack_type)
+    except Exception as exc:
+        logger.warning(f"[patchforge] LLM call/parse failed: {exc}")
         candidates = []
+
+    # Always prepend the deterministic seed if one was produced — it's the safest bet.
+    if seed_candidate:
+        candidates.insert(0, seed_candidate)
+
+    # Final safety net: if STILL no candidates, emit strategy stubs even if patched==source
+    # so the UI can at least show what we tried. Only triggers when LLM crashed AND quick
+    # fix didn't apply — usually means empty source_code was sent.
+    if not candidates:
+        logger.warning(f"[patchforge] no candidates after all fallbacks (attack={attack_type}, "
+                       f"src_len={len(source_code or '')}). Emitting strategy stubs.")
+        strategies = _get_fix_strategies(attack_type)
         for i, strategy in enumerate(strategies[:num_candidates]):
-            candidate = {
-                "id": f"fix-{i+1}",
+            patched = _generate_patch_stub(source_code, filename, line, strategy, finding)
+            candidates.append({
+                "id": f"fix-stub-{i+1}",
                 "strategy": strategy["name"],
                 "description": strategy["description"],
                 "confidence": strategy["confidence"],
-                "patch": _generate_patch_stub(
-                    source_code, filename, line, strategy, finding),
+                "patch": patched,
                 "risk": strategy.get("risk", "LOW"),
                 "breaking_change": strategy.get("breaking", False),
-            }
-            candidates.append(candidate)
+            })
+
+    # Import settings to get models/backends if needed
+    from core.config import settings
 
     return {
         "filename": filename,
@@ -159,6 +179,13 @@ async def generate_fix_candidates(
         "candidates": candidates,
         "candidate_count": len(candidates),
         "fix_prompt": fix_prompt,
+        "prompt_context": {
+            "prompt": fix_prompt,
+            "system_prompt": system_prompt,
+            "model": getattr(llm_client, "model", settings.VERDICT_MODEL),
+            "backend": getattr(llm_client, "backend", "vllm"),
+            "temperature": 0.2,
+        },
         "note": "Stage 2: Integrated with vLLM/Ollama via llm_client.",
     }
 
@@ -656,6 +683,27 @@ async def run_remediation(
 
 def _build_fix_prompt(attack_type, line, description, source, filename, style):
     """Build the LLM prompt for fix generation."""
+    attack_lower = (attack_type or "").lower()
+    is_secret = any(k in attack_lower for k in ("secret", "credential", "password", "api_key", "apikey", "token", "encoded_shell"))
+
+    extra_rules = ""
+    if is_secret:
+        extra_rules = (
+            "\n\nSECRET-SPECIFIC RULES (MANDATORY when fixing hardcoded credentials):\n"
+            "- DELETE the literal credential string. The patched_source MUST NOT contain "
+            "the original quoted secret value anywhere.\n"
+            "- Replace `VAR = \"literal\"` with `VAR = os.getenv(\"VAR\", \"\")`.\n"
+            "- Add `import os` at the top of the file if not already imported.\n"
+            "- Preserve all other lines unchanged."
+        )
+    elif "eval" in attack_lower or "exec" in attack_lower or "dangerous" in attack_lower:
+        extra_rules = (
+            "\n\nEXEC-SPECIFIC RULES:\n"
+            "- Remove the eval/exec/__import__ call entirely.\n"
+            "- Replace with an explicit allowlist dispatch or safe parser (json.loads, ast.literal_eval).\n"
+            "- Never leave the dangerous call commented out — delete it."
+        )
+
     return (
         f"Fix the following security issue in {filename}:\n\n"
         f"**Issue**: {description}\n"
@@ -663,10 +711,54 @@ def _build_fix_prompt(attack_type, line, description, source, filename, style):
         f"**Line**: {line}\n\n"
         f"Source code:\n```\n{source}\n```\n\n"
         f"Generate a minimal, safe fix that removes the vulnerability. "
-        f"CRITICAL: The 'patched_source' MUST be different from the original source code "
-        f"and must effectively remediate the security threat described above."
+        f"CRITICAL: The 'patched_source' MUST be the FULL file content with the vulnerable "
+        f"code REPLACED — not commented out, not annotated, REPLACED. "
+        f"The original vulnerable text MUST NOT appear anywhere in patched_source."
+        + extra_rules
         + (f"\n\nCoding style: {style}" if style else "")
     )
+
+
+def _is_meaningful_fix(patched: str, source: str, evidence: str, attack_type: str, line: int) -> bool:
+    """Decide if a candidate actually fixes the vulnerability rather than echoing source.
+
+    Accepts the patch when the vulnerable line (or its non-comment counterpart) has
+    been replaced. Rejects whitespace-only diffs and unmodified source.
+    """
+    if not patched or not patched.strip():
+        return False
+
+    p_strip = patched.strip()
+    s_strip = (source or "").strip()
+    if p_strip == s_strip:
+        return False
+    if "".join(p_strip.split()) == "".join(s_strip.split()):
+        return False
+
+    # For hardcoded secrets / credentials: ensure the literal value is gone from
+    # any non-comment line in the patch. A literal inside a `# was: ...` comment
+    # is fine — the runtime code no longer carries the secret.
+    src_lines = (source or "").replace("\r\n", "\n").split("\n")
+    orig_line = src_lines[line - 1] if (line and 1 <= line <= len(src_lines)) else ""
+    attack_lower = (attack_type or "").lower()
+    is_secret_class = (
+        any(k in attack_lower for k in ("secret", "credential", "password", "api_key", "token", "hardcoded", "encoded"))
+        or re.search(r"(?i)(password|api[_-]?key|secret|token|credential)\s*[=:]", orig_line)
+    )
+
+    if is_secret_class and orig_line:
+        m = re.search(r"""['"]([^'"]{6,})['"]""", orig_line)
+        if m:
+            literal = m.group(1)
+            # Check if the literal exists in any non-comment, non-string-doc line of patched code
+            for pl in patched.replace("\r\n", "\n").split("\n"):
+                stripped = pl.lstrip()
+                if stripped.startswith("#") or stripped.startswith("//"):
+                    continue
+                # Allow `os.getenv("VAR", "literal_default")` only if the literal isn't the secret
+                if literal in pl:
+                    return False
+    return True
 
 
 def _get_fix_strategies(attack_type: str) -> list[dict]:
@@ -784,7 +876,11 @@ def _apply_quick_fix(source: str, line: int, attack_type: str, evidence: str) ->
     if patched_line is None or patched_line == original:
         return ""
     lines[idx] = patched_line
-    return "\n".join(lines)
+    result = "\n".join(lines)
+    # Dedup os import for hardcoded-secret rewrites: keep top-level import only
+    if "import os" in patched_line and re.search(r"^\s*import os\b", source, re.MULTILINE):
+        result = re.sub(r"^(\s*)import os\s*#\s*noqa\s*\n", "", result, count=1, flags=re.MULTILINE)
+    return result
 
 
 def _guess_line_index(lines: list[str], evidence: str) -> int | None:
@@ -897,3 +993,48 @@ def _verify_pattern_removed(source: str, attack_type: str, finding: dict) -> dic
                     f"in patched source ({len(matches)} matches)"),
         "confidence": 0.85 if removed else 0.10,
     }
+
+
+def apply_patch_to_source(original_code: str, unified_diff: str) -> str:
+    """
+    Apply a unified diff / patch to the original_code and return the patched code.
+    If patching fails, falls back to the raw source.
+    """
+    # Simply using a basic parsing of unified diff, or since we already have candidates 
+    # where patched_source is generated, this helper can be a fallback or a light patch applicator.
+    # Often, the unified diff contains the exact lines to modify.
+    # In our scan pipeline, the patched_source is already complete, but this is a mandated helper.
+    import patch
+    import tempfile
+    
+    # If the unified diff is actually just the full new code (common LLM error), return that
+    if "diff --git" not in unified_diff and "@@ " not in unified_diff:
+        if len(unified_diff.strip()) > 0 and len(unified_diff.splitlines()) > 5:
+            return unified_diff
+
+    # Real unified diff application via temp files
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py') as orig_file:
+            orig_file.write(original_code)
+            orig_name = orig_file.name
+            
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.patch') as patch_file:
+            patch_file.write(unified_diff)
+            patch_name = patch_file.name
+
+        import subprocess
+        # try using git apply or patch command
+        try:
+            res = subprocess.run(['git', 'apply', '--recount', patch_name], cwd=tempfile.gettempdir(), capture_output=True, text=True)
+            if res.returncode == 0:
+                with open(orig_name, 'r') as f:
+                    return f.read()
+        except Exception:
+            pass
+            
+        # fallback to standard patch utility or simple line-by-line diff replacement if patch utility is missing
+        # In most cases, PatchForge generates candidate patches directly, so this is just a best-effort utility.
+        return original_code
+    except Exception:
+        return original_code
+

@@ -53,8 +53,31 @@ class Settings(BaseSettings):
     )
     SENTINEL_PENTEST_MAX_DURATION_SECONDS: int = 180
 
+    # ── GitHub Checks API (v2) ───────────────────────────────
+    SENTINEL_GH_CHECKS_ENABLED: bool = False    # gate — requires Checks: read&write permission
+
+    # ── GitHub OAuth (v2) ────────────────────────────────────
+    GITHUB_OAUTH_CLIENT_ID: str = ""
+    GITHUB_OAUTH_CLIENT_SECRET: str = ""
+    GITHUB_OAUTH_REDIRECT_URI: str = "http://localhost:8005/api/v1/github/callback"
+    SENTINEL_TOKEN_ENC_KEY: str = ""            # Fernet key for github_user_tokens; falls back to SENTINEL_ENCRYPTION_KEY
+
+    # ── Auto-pentest trigger (v2) ────────────────────────────
+    SENTINEL_PENTEST_AUTO: bool = False         # gate — disabled by default
+
+    # ── RL Data Collection (v2) ──────────────────────────────
+    RL_DATA_DIR: str = "data/rl"                # relative to project root
+    RL_REWARD_WEIGHTS: str = "0.6,0.2,0.2"     # human, shannon, mini_verifier
+    SENTINEL_RL_TRACE_ENABLED: bool = True      # generate reasoning traces on accept
+    SENTINEL_RL_TRACE_DAILY_LIMIT: int = 200    # cap LLM calls for trace generation
+    SENTINEL_RL_TRACE_MODEL_AISA: str = "deepseek-r1"
+    SENTINEL_RL_TRACE_MODEL_VLLM: str = "Qwen/Qwen2.5-Coder-32B-Instruct"
+    SENTINEL_RL_TRACE_MODEL_OLLAMA: str = ""    # empty → falls back to VERDICT_MODEL
+    SENTINEL_RL_TRACE_FORCE_BACKEND: str = ""   # "aisa" | "vllm" | "ollama" | "" (auto)
+
     class Config:
         env_file = ".env"
 
 
 settings = Settings()
+

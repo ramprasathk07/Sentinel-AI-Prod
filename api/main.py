@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from api.routes import webhook, scan, cpg_scan, pentest
+from api.routes import webhook, scan, cpg_scan, pentest, rl, github_auth
 from llm.llm_client import llm_client
 from storage.db import get_db_path
 
@@ -22,6 +22,8 @@ app.include_router(webhook.router, prefix="/webhook", tags=["webhook"])
 app.include_router(scan.router, prefix="/api/v1", tags=["scan"])
 app.include_router(cpg_scan.router, prefix="/api/v1", tags=["cpg-scan"])
 app.include_router(pentest.router, prefix="/api/v1", tags=["pentest"])
+app.include_router(rl.router, prefix="/api/v1", tags=["rl"])
+app.include_router(github_auth.router, prefix="/api/v1", tags=["github_auth"])
 
 _api_dir = Path(__file__).parent.resolve()
 _root_dir = _api_dir.parent

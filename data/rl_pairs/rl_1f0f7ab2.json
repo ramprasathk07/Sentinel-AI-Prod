@@ -1,0 +1,90 @@
+{
+  "schema_version": "1.0",
+  "id": "rl_1f0f7ab2",
+  "created_at": "2026-05-18T07:20:04.922133+00:00",
+  "label": "accept",
+  "reviewer": {
+    "email": "ramprasath61200@gmail.com",
+    "session_id": ""
+  },
+  "source": {
+    "type": "scan",
+    "scan_id": "sc_https:--github.com-ramprasathk07-Test_repo-_db_service.py",
+    "repo": "https://github.com/ramprasathk07/Test_repo/",
+    "pr_number": 0,
+    "commit_sha": "",
+    "file_path": "db_service.py"
+  },
+  "finding": {
+    "filename": "db_service.py",
+    "line": 100,
+    "technique": "over_permissive",
+    "severity": "HIGH",
+    "description": "Vibe-coding smell: chmod 0o777",
+    "evidence": "chmod(\"/tmp/user_export.txt\", 0o777)"
+  },
+  "prompt_context": {},
+  "code": {
+    "original_full": "chmod(\"/tmp/user_export.txt\", 0o777)",
+    "patched_full": "chmod(\"/tmp/user_export.txt\", 0o644)",
+    "unified_diff": "--- a/db_service.py\n+++ b/db_service.py\n@@ -1 +1 @@\n-chmod(\"/tmp/user_export.txt\", 0o777)+chmod(\"/tmp/user_export.txt\", 0o644)",
+    "language": "python",
+    "size_bytes_original": 36,
+    "size_bytes_patched": 36
+  },
+  "patch_metadata": {
+    "strategy": "deterministic_over_permissive",
+    "confidence": 0.92,
+    "risk": "LOW",
+    "breaking_change": false,
+    "shannon_verdict": "INDETERMINATE",
+    "mini_verifier": {}
+  },
+  "reward_signal": {
+    "human_label": 1,
+    "auto_signals": {
+      "shannon": 0,
+      "mini_verifier": 0,
+      "tests_pass": null
+    },
+    "composite": 0.6
+  },
+  "reasoning_trace": {
+    "generated_at": "2026-05-18T07:34:48.620791Z",
+    "generator": {
+      "model": "deepseek-r1",
+      "backend": "aisa",
+      "prompt_sha256": "e72f1e3b504758a6fe8c94c1700bebe6083ee15e455140f77aebefdcf7cd3323",
+      "temperature": 0.3,
+      "tokens_in": 84,
+      "tokens_out": 220
+    },
+    "trace": {
+      "root_cause": "File permissions set to 0o777 allow global read/write/execute access, violating least privilege",
+      "exploit_path": [
+        "Attacker modifies /tmp/user_export.txt to inject malicious content",
+        "Unauthorized users read sensitive data from world-readable file",
+        "Malicious processes execute or overwrite exported data"
+      ],
+      "why_patch_fixes": "0o644 restricts write access to owner while maintaining readability, preventing unauthorized modifications",
+      "residual_risks": [
+        "File remains readable by all users (residual information disclosure risk)",
+        "/tmp location allows any user to see file existence"
+      ],
+      "lesson": "Always apply minimal necessary permissions (principle of least privilege); avoid world-writable files especially in shared directories",
+      "tags": [
+        "file_permissions",
+        "least_privilege",
+        "world_writable",
+        "tmp_directory"
+      ]
+    },
+    "human_edits": null,
+    "confidence_self_reported": 0.85
+  },
+  "hashes": {
+    "original_sha256": "40bd0be0e1924f57e9ec2da6b6894d0726a6d06806c95efae93143e5c69fd9db",
+    "patched_sha256": "2a441c1ba07d58b0f57a0933385999b6f55ad7909a65f37a156f939ec97480b0",
+    "record_sha256": ""
+  }
+}

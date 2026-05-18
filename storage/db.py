@@ -66,6 +66,7 @@ def init_db():
                 pr_title TEXT,
                 author TEXT,
                 pr_url TEXT,
+                dismissal TEXT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -80,11 +81,21 @@ def init_db():
             ("pr_title", "ALTER TABLE analysis_logs ADD COLUMN pr_title TEXT"),
             ("author", "ALTER TABLE analysis_logs ADD COLUMN author TEXT"),
             ("pr_url", "ALTER TABLE analysis_logs ADD COLUMN pr_url TEXT"),
+            ("dismissal", "ALTER TABLE analysis_logs ADD COLUMN dismissal TEXT"),
         ]:
             try:
                 cursor.execute(ddl)
             except sqlite3.OperationalError:
                 pass  # column already exists
+
+        # Table for storing GitHub OAuth encrypted access tokens per user
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS github_user_tokens (
+                user_email TEXT PRIMARY KEY,
+                encrypted_token TEXT NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
         # Table for watched repositories (persists across restarts)
         cursor.execute("""
@@ -120,7 +131,27 @@ def init_db():
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
+
+        # Table for RL training pairs (v2 — Data Collection)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS rl_pairs (
+                id TEXT PRIMARY KEY,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                scan_id TEXT,
+                repo TEXT,
+                file_path TEXT,
+                label TEXT,
+                reviewer_email TEXT,
+                composite_reward REAL,
+                record_json TEXT NOT NULL,
+                record_path TEXT,
+                trace_status TEXT DEFAULT 'none',
+                trace_json TEXT
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_rl_label ON rl_pairs(label)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_rl_repo ON rl_pairs(repo)")
+
         conn.commit()
         logger.info(f"SQLite DB initialized at {db_path}")
         
@@ -448,3 +479,25 @@ def list_pentest_sessions(limit: int = 20) -> list[dict]:
 # Auto-initialize on import
 init_db()
 init_pentest_table()
+
+
+def save_token(user_email: str, encrypted_token: str) -> None:
+    """Save or update encrypted GitHub token for a user."""
+    with get_db() as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO github_user_tokens (user_email, encrypted_token, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        """, (user_email, encrypted_token))
+        conn.commit()
+
+
+def get_token(user_email: str) -> Optional[str]:
+    """Retrieve encrypted GitHub token for a user."""
+    with get_db() as conn:
+        cur = conn.execute(
+            "SELECT encrypted_token FROM github_user_tokens WHERE user_email = ?",
+            (user_email,),
+        )
+        row = cur.fetchone()
+        return row["encrypted_token"] if row else None
+

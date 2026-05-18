@@ -1,0 +1,77 @@
+{
+  "schema_version": "1.0",
+  "id": "rl_230f7c79",
+  "created_at": "2026-05-18T07:20:05.033882+00:00",
+  "label": "pending",
+  "reviewer": {
+    "email": "",
+    "session_id": ""
+  },
+  "source": {
+    "type": "scan",
+    "scan_id": "sc_https:--github.com-ramprasathk07-Test_repo-_db_service.py",
+    "repo": "https://github.com/ramprasathk07/Test_repo/",
+    "pr_number": 0,
+    "commit_sha": "",
+    "file_path": "db_service.py"
+  },
+  "finding": {
+    "filename": "db_service.py",
+    "line": 100,
+    "technique": "over_permissive",
+    "severity": "HIGH",
+    "description": "Vibe-coding smell: chmod 0o777",
+    "evidence": "chmod(\"/tmp/user_export.txt\", 0o777)"
+  },
+  "prompt_context": {},
+  "code": {
+    "original_full": "chmod(\"/tmp/user_export.txt\", 0o777)",
+    "patched_full": "chmod(\"/tmp/user_export.txt\", 0o600)",
+    "unified_diff": "--- a/db_service.py\n+++ b/db_service.py\n@@ -1 +1 @@\n-chmod(\"/tmp/user_export.txt\", 0o777)+chmod(\"/tmp/user_export.txt\", 0o600)",
+    "language": "python",
+    "size_bytes_original": 36,
+    "size_bytes_patched": 36
+  },
+  "patch_metadata": {
+    "strategy": "reduce_permissions",
+    "confidence": 0.9,
+    "risk": "LOW",
+    "breaking_change": false,
+    "shannon_verdict": "INDETERMINATE",
+    "mini_verifier": {}
+  },
+  "reward_signal": {},
+  "reasoning_trace": {
+    "generated_at": "2026-05-18T07:31:36.542551Z",
+    "generator": {
+      "model": "static-stub",
+      "backend": "none",
+      "prompt_sha256": "",
+      "temperature": 0.0,
+      "tokens_in": 0,
+      "tokens_out": 0
+    },
+    "trace": {
+      "root_cause": "Vibe-coding smell: chmod 0o777",
+      "exploit_path": [
+        "Attacker exploits over_permissive"
+      ],
+      "why_patch_fixes": "Removes the vulnerability pattern",
+      "residual_risks": [
+        "Static fallback \u2014 requires human review"
+      ],
+      "lesson": "Always validate input and follow secure coding practices.",
+      "tags": [
+        "over_permissive",
+        "static_fallback"
+      ]
+    },
+    "human_edits": null,
+    "confidence_self_reported": 0.0
+  },
+  "hashes": {
+    "original_sha256": "40bd0be0e1924f57e9ec2da6b6894d0726a6d06806c95efae93143e5c69fd9db",
+    "patched_sha256": "d5b503b0f25fe5897caa1271d87c6f343e58c08e3d27b8c61f4131611af00ef2",
+    "record_sha256": ""
+  }
+}

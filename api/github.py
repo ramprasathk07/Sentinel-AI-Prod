@@ -165,3 +165,56 @@ async def post_pr_comment(repo_full_name: str, pr_number: int, comment_body: str
             return True
         logger.error(f"Failed to post comment: {resp.status_code} - {resp.text}")
         return False
+
+
+async def list_pr_comments(repo_full_name: str, pr_number: int, token: str) -> list:
+    """List all issue comments on a PR. Returns list of {id, body, user}."""
+    await github_rate_limiter.acquire()
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        url = f"https://api.github.com/repos/{repo_full_name}/issues/{pr_number}/comments"
+        resp = await client.get(url, headers=headers, params={"per_page": 100})
+        if resp.status_code == 200:
+            return resp.json()
+        logger.error(f"list_pr_comments failed: {resp.status_code}")
+        return []
+
+
+async def update_pr_comment(repo_full_name: str, comment_id: int, body: str, token: str) -> bool:
+    """Update an existing issue comment body."""
+    await github_rate_limiter.acquire()
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        url = f"https://api.github.com/repos/{repo_full_name}/issues/comments/{comment_id}"
+        resp = await client.patch(url, headers=headers, json={"body": body})
+        if resp.status_code == 200:
+            logger.info(f"Updated comment {comment_id} on {repo_full_name}")
+            return True
+        logger.error(f"update_pr_comment failed: {resp.status_code} {resp.text[:200]}")
+        return False
+
+
+async def upsert_pr_comment(
+    repo_full_name: str,
+    pr_number: int,
+    body: str,
+    marker: str,
+    token: str,
+) -> bool:
+    """
+    Update an existing comment containing `marker`, or create a new one.
+
+    `marker` is a hidden HTML comment like `<!-- sentinel-ai:scan-id=XYZ -->`.
+    Returns True on success.
+    """
+    comments = await list_pr_comments(repo_full_name, pr_number, token)
+    for c in comments:
+        if marker in (c.get("body") or ""):
+            return await update_pr_comment(repo_full_name, c["id"], body, token)
+    return await post_pr_comment(repo_full_name, pr_number, body, token)

@@ -4,6 +4,9 @@ import json
 from typing import Dict
 from utils.logger import logger
 
+JOERN_IMAGE = os.getenv("JOERN_DOCKER_IMAGE", "ghcr.io/joernio/joern:latest")
+
+
 def generate_cpg(repo_path: str) -> str:
     """Run Joern via Docker to generate a CPG JSON from the given repo_path.
     Returns the path to the directory containing the JSON files.
@@ -11,17 +14,17 @@ def generate_cpg(repo_path: str) -> str:
     repo_path = os.path.abspath(repo_path)
     cpg_bin_path = "/workspace/cpg.bin"
     out_dir_path = "/workspace/cpg_json"
-    
+
     cmd = [
         "docker", "run", "--rm",
         "-v", f"{repo_path}:/workspace",
-        "joern/joern",
+        JOERN_IMAGE,
         "/bin/bash", "-c",
         f"joern-parse /workspace --output {cpg_bin_path} && joern-export {cpg_bin_path} --repr=all --format=json --out {out_dir_path}"
     ]
-    
+
     try:
-        logger.info("Running Joern container. This might take a few minutes...")
+        logger.info(f"Running Joern container ({JOERN_IMAGE}). This might take a few minutes...")
         subprocess.run(cmd, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as e:
         logger.error(f"Joern execution failed: {e.stderr}")
@@ -123,11 +126,11 @@ def generate_synthetic_cpg(source_data: Dict) -> Dict:
             s_idx += 1
 
     if not endpoints and not sinks_dict:
-        return _mock_cpg_analysis(repo_path)
+        return _mock_cpg_analysis()
 
     return {"nodes": nodes, "edges": edges}
 
-def _mock_cpg_analysis(repo_path: str) -> Dict:
+def _mock_cpg_analysis() -> Dict:
     """Fallback if no data is available."""
     return {
         "nodes": [

@@ -58,7 +58,7 @@ class PatchForgeVLLMWrapper:
                 llm_client_override=llm,
             )
             logger.info(f"[patchforge] DONE success={result.get('success')} "
-                        f"pr_url={result.get('pr_result', {}).get('pr_url', 'none')}")
+                        f"pr_url={(result.get('pr_result') or {}).get('pr_url', 'none')}")
             return AgentResponse(
                 agent_id=request.agent_id,
                 status="success",

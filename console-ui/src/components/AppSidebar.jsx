@@ -3,7 +3,8 @@ import { GoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../lib/AuthContext';
 import {
   Search, FolderGit2, Eye, Clock, BarChart3,
-  FlaskConical, FileText, Settings, LogOut, Network, ShieldAlert
+  FlaskConical, FileText, Settings, LogOut, Network, ShieldAlert,
+  GitBranch, Database
 } from 'lucide-react';
 
 const NAV = [
@@ -13,8 +14,10 @@ const NAV = [
     { id: 'pentest',   label: 'Pentest',     icon: ShieldAlert },
     { id: 'repo',      label: 'Repository', icon: FolderGit2 },
     { id: 'watch',     label: 'Watching',   icon: Eye },
+    { id: 'github',    label: 'GitHub',     icon: GitBranch },
   ]},
   { section: 'INSIGHTS', items: [
+    { id: 'dataCollection', label: 'Data Collection', icon: Database },
     { id: 'history',   label: 'History',    icon: Clock },
     { id: 'analytics', label: 'Analytics',  icon: BarChart3 },
     { id: 'tests',     label: 'Tests',      icon: FlaskConical },

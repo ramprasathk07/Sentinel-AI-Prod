@@ -1,170 +1,406 @@
-# Sentinel-AI — Product Overview
+# Sentinel-AI
 
-> Local-first, multi-agent supply-chain + runtime security platform for GitHub PRs and shipped code.
-> Detect → Detonate → Patch → Verify, end-to-end, on a single box.
+**Autonomous, multi-agent supply-chain security for every Pull Request — running 100% on your own infrastructure.**
 
----
+> Stop xz-style attacks before they merge. No code ever leaves your network.
 
-## 1. Why now
-
-- **xz-utils (Mar 2024)** — 8 days from upload to ~1.2M servers exposed. Maintainer was the attack surface, not the code.
-- **EU Cyber Resilience Act** — enforcement Dec 2024; vendors liable for supply-chain CVEs.
-- **AI-code explosion** — GitHub Octoverse 2024: Copilot suggests ~46% of new lines in active repos. Vibe-coding patterns (`chmod 0o777`, hallucinated imports, `cors=*`) now ship at scale.
-- **Snyk + Socket gaps exposed** — neither catches install-hook obfuscation in <7-day-old maintainer accounts.
-
-If three megatrends converge in one window, that's a market.
+[![Stage](https://img.shields.io/badge/stage-MVP%20%2F%20Stage%201-blue)]()
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)]()
+[![React](https://img.shields.io/badge/console--ui-React%2019%20%2B%20Vite-61DAFB)]()
+[![LLM](https://img.shields.io/badge/LLM-AISA%20%7C%20vLLM%20%7C%20Ollama-orange)]()
+[![Framework](https://img.shields.io/badge/framework-Google%20ADK%20%2B%20A2A-4285F4)]()
+[![License](https://img.shields.io/badge/license-TBD-lightgrey)]()
 
 ---
 
-## 2. Market
+## 1. The problem
 
-| Class | Tools | Gap |
+Modern supply-chain attacks (xz-utils, event-stream, ua-parser-js, PyTorch nightly) succeed because the existing toolchain is structurally blind to *how* they actually work:
+
+| Class of tool | Examples | Structural gap |
 |---|---|---|
-| SCA scanners | Snyk, Socket, Dependabot, Endor | Read code, never run it. Miss obfuscation + maintainer trust. |
-| AI code reviewers | CodeRabbit, Copilot Review | Style/quality, not exploitability. |
-| Pentest engines | Burp, Shannon, ZAP | Runtime-only, no PR-time loop, expensive (~$50/scan). |
-| Cloud SaaS scanners | All of the above | Code leaves customer infra → blocked by FedRAMP/HIPAA/air-gap. |
+| **SCA scanners** | Snyk, Socket, Dependabot | Match known CVEs in a lockfile. Cannot detect a *new* malicious package, a hijacked maintainer, or an install-time payload. |
+| **AI code reviewers** | CodeRabbit, GitHub Copilot review, SonarQube | Score *style* and *bugs*, not exploitability. Don't execute the code. Blind to homoglyphs, base64-chained payloads, hidden execution in `__del__`/`atexit`/`process.on('exit')`. |
+| **Pentesters / DAST** | Burp, Shannon, ZAP | Operate at runtime against deployed services. Have no PR-time loop, no fix proposal, no closed verification. |
 
-**TAM math (Gartner AppSec + Octoverse 2024):**
+The three blind spots compound:
 
-- **Global AppSec market:** $9.5B (2024) → $30B (2030) — Gartner.
-- **Wedge: PR-time supply-chain + AI-code review.** 100M GitHub repos × 5% active (>5 contributors) × 40% security-priority × blended $90/mo ARPU = **$540M ARR addressable on indie+SMB tiers**.
-- **Enterprise upside:** Snyk ~$400M ARR (2024) off SCA alone; Wiz $500M+ off cloud-runtime. Combined Sentinel wedge sits at the intersection — comp range supports **$1B+ category leader**.
+1. **The maintainer is the attack surface.** A compromised account can publish malicious code that *every* lockfile-pinning, *every* SCA scanner, and *every* reviewer happily accepts.
+2. **Obfuscation defeats grep.** Cyrillic homoglyphs, `eval(compile(b64decode(...)))`, `chr()`-built builtin names, payloads hidden in `except`/`__del__`/`atexit`/`process.on('exit')` are invisible to linters and AI reviewers tuned for code quality.
+3. **No one closes the loop.** Even when a fix is proposed, nothing re-runs the original exploit against the patch. "The LLM thinks it's fixed" is not a verification.
+
+Nobody owns the seam between *static review* and *behavioral verification* at PR time.
 
 ---
 
-## 3. Product
+## 2. What Sentinel-AI does
 
-**Sentinel-AI is an immune system for your repo.** Install GitHub App → every PR runs an 8-agent pipeline → BLOCK/REVIEW/APPROVE verdict + verified patch + one-click fix PR — in 5–60 seconds, $0 marginal, never leaves the box.
-
-### 3.1 System workflow
+Sentinel-AI is a coordinated **immune system** — five specialized AI agents, each owning a different attack surface, run together in a **Detect → Decide → Patch → Verify → Learn** loop on every pull request. Everything runs locally on commodity hardware.
 
 ```mermaid
 flowchart LR
-    Dev[Developer / Vibe-coder] -->|opens PR| GH[GitHub App Webhook]
-    GH -->|HMAC + JWT| API[FastAPI :8005]
-    API --> ORCH[Orchestrator<br/>asyncio.gather + SSE]
+    PR[GitHub PR<br/>opened/synced] --> WH[Webhook Receiver<br/>HMAC verified]
+    WH --> FETCH[Fetch diff + lockfiles<br/>via installation token]
 
-    subgraph AGENTS[8-Agent Pipeline]
-        direction TB
-        A1[Archeologist<br/>CVE + One-Week Rule]
-        A2[ShadowStalker<br/>AST + CPG + Vibe smells]
-        A3[LeadWarden<br/>Rule engine + LLM verdict]
-        A4[PatchForge<br/>Fix candidates]
-        A5[MiniVerifier<br/>Re-run exploit vs patch]
-        A6[Detonator<br/>eBPF sandbox - S2]
-        A7[Sentinel Watcher<br/>Registry monitor - S2]
-        A8[Ghost Detector<br/>Phantom deps - S2]
-        A1 --> A3
-        A2 --> A3
-        A3 -->|BLOCK / HIGH| A4
-        A4 --> A5
-    end
+    FETCH --> ARCH[Archeologist<br/>CVE + maintainer trust]
+    FETCH --> SS[Shadow Stalker<br/>AST + CFG/CPG static]
 
-    ORCH --> AGENTS
-    AGENTS --> LLM[LLM Gateway<br/>AISA / vLLM / Ollama]
-    AGENTS --> DB[(SQLite<br/>analysis_logs<br/>ground_truth<br/>pentest_sessions)]
-    AGENTS --> PT[Pentest Module<br/>Source -> Probe -> Hunt -> Validate -> Report]
+    ARCH --> LW[Lead Warden<br/>rule engine + LLM verdict]
+    SS --> LW
 
-    A5 -->|verified fix| FIXPR[One-click Fix PR]
-    A3 -->|verdict + reasoning| UI[React Console<br/>SSE live phases]
-    UI -->|opt-in 👍/👎| DB
-    DB -.->|federated anon signatures| RLHF[M-GRPO Adapter - S3]
+    LW -->|APPROVE| OUT1[PR comment APPROVE]
+    LW -->|REVIEW| OUT2[PR comment REVIEW]
+    LW -->|BLOCK or HIGH| PF[PatchForge<br/>generate fix candidates]
+
+    PF --> MV[Mini-Verifier<br/>blocklist + Shannon hook]
+    MV -->|fully_verified| FIX[One-click<br/>remediation PR]
+    MV -->|fail| RETRY[Demote candidate<br/>retry / surface to human]
+
+    LW --> DB[(SQLite<br/>analysis_logs +<br/>ground_truth_labels)]
+    FIX --> DB
 ```
 
-5 live agents (Archeologist, ShadowStalker, LeadWarden, PatchForge, MiniVerifier) + 3 scaffolded (Detonator, Watcher, Ghost). Pentest module runs OWASP runtime exploits against customer-authorised targets (180s wall clock, allowlisted egress, written-auth gate in UI).
+The architecture pulls the seam closed: static review *and* behavioral verification, both at PR time, both local-first.
 
 ---
 
-## 4. How it helps developers + vibe-coders patch leaky codebases
+## 3. The agent roster
 
-| Pain | Sentinel-AI cure |
+Each agent lives at `agents/<name>/` with `agent.py` (Google ADK definition), `tools.py` (typed tool functions), and `a2a_wrapper.py` (Agent-to-Agent invocation shim).
+
+| # | Agent | Role |
+|---|---|---|
+| 1 | **Archeologist** | OSV + NVD CVE lookup, npm/PyPI maintainer probe, **One-Week Rule** |
+| 2 | **Shadow Stalker** | AST + tree-sitter: homoglyph, base64-exec, install hooks, dangerous calls, vibe-coding smells |
+| 3 | **Lead Warden** | Verdict synthesis (rule engine + LLM), reasoning chain, attack class |
+| 4 | **PatchForge** | Generate fix candidates → test → verify → open remediation PR |
+| 5 | **Mini-Verifier** | Closed loop: static blocklist + Shannon PoC re-execution |
+
+---
+
+## 4. Detection sequence (single PR)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant GH as GitHub
+    participant API as FastAPI :8005
+    participant A as Archeologist
+    participant S as Shadow Stalker
+    participant L as Lead Warden
+    participant P as PatchForge
+    participant V as Mini-Verifier
+    participant DB as SQLite
+
+    GH->>API: PR opened (webhook + HMAC)
+    API->>GH: fetch diff + lockfiles (installation token)
+
+    par parallel scans (asyncio.gather)
+        API->>A: AgentRequest(diff, lockfiles, pr_meta)
+        A->>A: parse_lockfile → OSV/NVD → maintainer trust
+        A-->>API: cve_findings, one_week_flags
+    and
+        API->>S: AgentRequest(diff)
+        S->>S: AST + tree-sitter + homoglyph + b64 + embedding match
+        S-->>API: findings[], file_reports{}, risk_score
+    end
+
+    API->>L: synthesize_verdict(arch, ss, meta)
+    alt LLM verdict accepted
+        L->>L: get_llm_verdict → BLOCK|REVIEW|APPROVE
+    else fall back
+        L->>L: rule engine — severity weights, thresholds
+    end
+    L-->>API: verdict, confidence, reasoning[]
+
+    alt BLOCK or has HIGH/CRITICAL
+        API->>P: AgentRequest(top_finding, source)
+        P->>P: generate candidates → sandbox test
+        P->>V: blocklist scan + Shannon hook
+        V-->>P: PASS / FAIL / INDETERMINATE
+        P-->>API: patched_source, fully_verified
+    end
+
+    API->>DB: log_analysis(verdict, findings, reasoning)
+    API->>GH: post verdict comment + reasoning chain
+```
+
+---
+
+## 5. System architecture
+
+```mermaid
+flowchart TB
+    subgraph L1[Layer 1 - Interface]
+        UI[console-ui<br/>React 19 + Vite]
+        WEBHOOK[Webhook /webhook/<br/>HMAC + JWT]
+        REST[REST /api/v1/*]
+        SSE[SSE /scan-stream<br/>stage events]
+    end
+
+    subgraph L2[Layer 2 - Orchestration]
+        BG[BackgroundTasks]
+        A2A[A2A wrappers<br/>per agent]
+        SCHEMA[core/schemas.py<br/>AgentRequest/Response]
+    end
+
+    subgraph L3[Layer 3 - Intelligence]
+        AGENTS[Google ADK agents<br/>5 specialised]
+        LLM[LLMClient<br/>backend gateway]
+        AISA[AISA.one<br/>gpt-4o-mini]
+        VLLM[vLLM<br/>qwen2.5-coder:7b]
+        OLLAMA[Ollama<br/>local dev]
+    end
+
+    subgraph L4[Layer 4 - Persistence]
+        SQLITE[(SQLite<br/>sentinel.db)]
+        GT[(ground_truth_labels<br/>RL training fuel)]
+    end
+
+    UI --> REST
+    UI --> SSE
+    WEBHOOK --> BG
+    REST --> BG
+    SSE --> BG
+    BG --> A2A
+    A2A --> AGENTS
+    AGENTS --> LLM
+    LLM --> AISA
+    LLM --> VLLM
+    LLM --> OLLAMA
+    AGENTS --> SQLITE
+    SQLITE --> GT
+```
+
+Single architectural contract: `core/config.py` controls every backing. Swap SQLite→Postgres, Ollama→vLLM→AISA, Docker→Firecracker without touching agent code.
+
+---
+
+## 6. LLM strategy
+
+```mermaid
+flowchart LR
+    REQ[Scan request] --> CHECK{rule-engine<br/>confidence ≥ 0.70?}
+    CHECK -->|yes| RULE[Use rule-based<br/>verdict — $0]
+    CHECK -->|no| LLM_TRY[LLMClient.complete]
+
+    LLM_TRY --> AISA[AISA.one<br/>primary]
+    AISA -->|error| VLLM[vLLM fallback]
+    VLLM -->|error| OLLAMA[Ollama local]
+    OLLAMA -->|error| FALLBACK[Rule engine<br/>safe default]
+
+    AISA --> PARSE[Parse JSON<br/>BLOCK/REVIEW/APPROVE]
+    VLLM --> PARSE
+    OLLAMA --> PARSE
+    PARSE -->|valid| OUT[verdict_engine: vllm]
+    PARSE -->|invalid| FALLBACK
+    RULE --> OUT2[verdict_engine: rule-based]
+    FALLBACK --> OUT2
+```
+
+Per-request override: the UI Settings tab passes `llm_provider` / `llm_model` / `llm_key` per scan — no restart, no env reload.
+
+---
+
+## 7. What makes the detection different
+
+* **The One-Week Rule** — flag any package whose latest publishing maintainer registered <7 days ago. Retroactively hits xz-utils, event-stream, and ua-parser-js. No commercial scanner enforces it.
+* **Homoglyph + obfuscation chain detection** — Cyrillic look-alikes, `eval(compile(b64decode(...)))`, `chr()`-built builtin names, `__del__`/`atexit`/`process.on('exit')` payloads. AST + tree-sitter, not regex alone.
+* **Vibe-coding detector** (`agents/shadow_stalker/vibe_detector.py`) — flags AI-generated code smells: `chmod 0o777`, `cors=*`, hallucinated stdlib imports, generic `except Exception: pass` next to network calls.
+* **Phantom-dep & typosquat** — finds packages installed but undeclared, plus Levenshtein + Soundex against top-10k names.
+* **Closed-loop verifier** — every PatchForge candidate runs through static blocklist (`eval`, `exec`, `__import__`, `subprocess shell=True`, `base64+exec`) **and** Shannon PoC re-execution. Patches ship `fully_verified: true` only when both pass. Failed candidates are demoted to confidence 0.0 — they don't reach the user.
+* **Verdict explains itself** — every BLOCK comment ships with a numbered reasoning chain a human can sanity-check line by line. No black-box score.
+
+---
+
+## 8. Verdict scoring
+
+```
+Severity weights:  CRITICAL = 10   HIGH = 5   MEDIUM = 2   LOW = 0.5
+Verdict thresholds: ≥ 15 → BLOCK   ≥ 5 → REVIEW   < 5 → APPROVE
+Homoglyph bonus:   +5  (strong supply-chain indicator)
+```
+
+Every response includes: `verdict`, `confidence`, `severity`, `risk_score`, `attack_classification`, `reasoning[]`, `agent_scores{}`, `findings_count{}`, `verdict_engine` (`vllm` | `rule-based`).
+
+---
+
+## 9. Quickstart
+
+### Prerequisites
+* Python 3.11+, Node 20+
+* One of: [Ollama](https://ollama.com) with `qwen2.5-coder:7b`, a vLLM endpoint, or an AISA.one API key
+* A GitHub App + public tunnel (`ngrok`) for webhook mode — *optional* for local scan via `/api/v1/scan`
+
+### 1. Install
+```bash
+git clone https://github.com/ramprasathk07/Sentinel-AI.git
+cd Sentinel-AI
+python -m venv .venv && .venv\Scripts\activate    # PowerShell: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+npm --prefix console-ui install
+```
+
+### 2. Configure `.env`
+```ini
+# LLM (pick one)
+LLM_BACKEND=aisa            # aisa | vllm | ollama
+AISA_API_KEY=sk-...
+# AISA_BASE_URL=https://api.aisa.one/v1
+# VLLM_BASE_URL=http://localhost:8000
+# OLLAMA_BASE_URL=http://localhost:11434
+VERDICT_MODEL=qwen2.5-coder:7b
+
+# GitHub App (only for webhook mode)
+GITHUB_APP_ID=
+GITHUB_WEBHOOK_SECRET=
+GITHUB_PRIVATE_KEY_PATH=./secrets/sentinel-app.private-key.pem
+
+# Optional
+NVD_API_KEY=
+SLACK_WEBHOOK_URL=
+```
+
+### 3. Run
+```powershell
+# Build the console UI once
+npm --prefix console-ui run build
+
+# Start backend (serves built UI at http://localhost:8005)
+python run.py
+
+# OR dev mode (UI hot-reload at :5173, API at :8005)
+npm --prefix console-ui run dev
+```
+
+### 4. Scan without GitHub App
+```bash
+curl -X POST http://localhost:8005/api/v1/scan \
+  -H "Content-Type: application/json" \
+  -d '{"repo":"owner/repo","pr_number":42,"github_token":"ghp_..."}'
+```
+
+---
+
+## 10. API surface
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/v1/scan` | Single PR scan |
+| POST | `/api/v1/scan-stream` | SSE — emits `stage:*` events for UI animation |
+| POST | `/api/v1/scan-repo` | Bulk scan all open PRs |
+| POST | `/api/v1/watch` | Register webhook on a repo |
+| DELETE | `/api/v1/watch/{owner}/{repo}` | Unwatch |
+| POST | `/api/v1/patch` | Run PatchForge on a single finding |
+| POST | `/api/v1/create-fix-pr` | One-click open remediation PR |
+| GET | `/api/v1/history[?repo=]` | Recent scans from SQLite |
+| GET | `/api/v1/history/{owner}/{repo}/{pr}` | Full detail for one analysis |
+| POST | `/webhook/` | GitHub App primary receiver |
+| POST | `/api/v1/webhook/token/{repo_key}` | Per-repo signed webhook |
+| GET | `/healthz` | LLM + DB + git rev liveness |
+
+---
+
+## 11. Local-first as a feature
+
+| Concern | Cloud SCA / AI reviewers | Sentinel-AI |
+|---|---|---|
+| Where does my code go? | Their cloud, their logs | Your VPS / laptop. Zero exfil. |
+| Per-repo cost | $$ / seat, indexed | $0 marginal — local LLM or BYO key |
+| Compliance posture | Their SOC2 (good) — data flows out | Yours — fits FedRAMP, HIPAA, air-gapped |
+| Latency on PR | Their queue | Your machine, ~5–60s end-to-end |
+| Custom rules + training data | Enterprise-tier lock-in | Every 👍/👎 = your training corpus |
+
+---
+
+## 12. Testing
+
+```
+tests/
+  agents/         7 unit suites — mocked LLM, no network
+  integration/    test_mini_verifier.py + test_fp_rate.py (8% FP-rate CI gate)
+  fixtures/       safe_prs/ · verifier/ corpora
+```
+
+* `pytest tests/` — full suite (~75 tests).
+* CI: `.github/workflows/ci.yml` — Python 3.11 + 3.12 matrix, `ruff` + `pytest`, FP-rate gate.
+
+---
+
+## 13. Repository layout
+
+```
+Sentinel-AI/
+├── agents/
+│   ├── archeologist/          CVE + maintainer trust (cpg_analyzer, embedding_store)
+│   ├── shadow_stalker/        AST + obfuscation scan (vibe_detector)
+│   ├── lead_warden/           Verdict engine
+│   ├── patchforge/            Fix generation (vllm_wrapper)
+│   └── mini_verifier/         Closed-loop blocklist + Shannon
+├── api/                       FastAPI: main.py + routes/{scan,watch,webhook}.py + github.py
+├── core/                      schemas, config, agent_base, A2A registry
+├── llm/llm_client.py          AISA / vLLM / Ollama gateway
+├── storage/                   SQLite logger + ground-truth JSON dumper
+├── utils/                     diff_parser, lockfile_parser, formatter, logger
+├── prompts/                   Lead Warden + style rules
+├── console-ui/                React 19 + Vite SPA → served from /
+├── tests/                     unit (mocked) + integration (FP gate) + fixtures
+├── docs/                      TECHNICAL · THREAT_MODEL · MINI_VERIFIER · SHANNON_INTEGRATION ...
+└── run.py                     uvicorn entry point (port 8005)
+```
+
+---
+
+## 14. Documentation
+
+| Document | Purpose |
 |---|---|
-| "Dependabot opened 40 PRs, I ignore them all." | One BLOCK comment with **why**, reasoning chain, CVSS, one-click *verified* fix PR. |
-| "Copilot wrote my auth, did it leak tokens?" | Vibe-Coding detector flags hallucinated stdlib imports, `chmod 0o777`, `cors=*`, swallowed network exceptions. |
-| "New dep maintainer looks sketchy." | **One-Week Rule** — flag any account <7d old publishing install hooks. Catches xz, event-stream, ua-parser-js retroactively. |
-| "Did the patch actually fix it?" | MiniVerifier re-runs the exploit against the patch; ships `fully_verified: true` only when blocklist + Shannon pass. |
-| "Can't send code to a SaaS." | Local-first. Zero default telemetry. FedRAMP / HIPAA / air-gapped out of the box. |
-| "AI black-box verdicts are unfixable." | Every verdict ships a numbered reasoning chain — human-auditable line by line. |
-| "Already shipped, is prod exploitable?" | Pentest module runs OWASP runtime exploits against authorised targets, returns proof-carrying report. |
+| [`docs/TECHNICAL.md`](docs/TECHNICAL.md) | Deep architecture, schemas, infra, gaps |
+| [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | Stage 1 → 4 roadmap, KPIs, unlock order |
+| [`docs/SHANNON_INTEGRATION.md`](docs/SHANNON_INTEGRATION.md) | Wiring Shannon (KeygraphHQ) + Mutant Factory |
+| [`docs/MINI_VERIFIER.md`](docs/MINI_VERIFIER.md) | Pure-Python verifier for classes Shannon doesn't cover |
+| [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | STRIDE, prompt-injection defence, sandbox posture |
+| [`docs/HACKATHON_SUBMISSION.md`](docs/HACKATHON_SUBMISSION.md) | Hackathon pitch + claim → evidence map |
+| [`docs/PITCH_NOTES.md`](docs/PITCH_NOTES.md) | Market sizing, demo recipe, business model |
+| [`docs/false_positives.md`](docs/false_positives.md) | Living FP log — Stage 3 RL training data |
+| [`docs/Sentinel_AI_Master_Blueprint.docx`](docs/Sentinel_AI_Master_Blueprint.docx) | Master strategy + funding doc |
 
 ---
 
-## 5. Differentiation (the moat)
+## 15. Roadmap
 
-1. **Detonate-then-decide** — only platform combining static SCA + behavioural sandbox + PR-time loop. CodeRabbit literally cannot do this.
-2. **Closed-loop verification** — every patch re-runs the original exploit. "No exploit, no report" + "no fix, no merge."
-3. **One-Week Rule** — viral, simple, historically validated; no commercial scanner enforces it.
-4. **Local-first as compliance wedge** — unopposed in FedRAMP / HIPAA / air-gapped buyers.
-5. **Schema-first** — every Stage-2/3 output already has a Pydantic schema. Forward growth = integration, not redesign.
-6. **Federated RL flywheel** — opt-in anonymised attack signatures (not source) → Mutant Factory amplification → M-GRPO adapter. Compounding moat competitors cannot buy.
-
-**Defensibility vs incumbents (GitHub/Snyk clone in 6 months?):** local-first compliance + closed-loop MiniVerifier + RL adapter trained on customer FP corpus — three orthogonal moats. Cloud-native SaaS competitors cannot replicate the first without rebuilding their entire delivery model.
-
----
-
-## 6. Traction & metrics (current MVP)
-
-| Metric | Value |
-|---|---|
-| Live agents in pipeline | 5 / 8 |
-| Lines of Python (excl. venv) | ~5,000 |
-| Tests passing | 75+ unit + integration |
-| **FP-rate CI gate** | **< 8%** (build fails if breached) |
-| Median scan latency | 5–30s |
-| p95 scan latency | ≤ 45s |
-| LLM backends supported | 3 (AISA / vLLM / Ollama) |
-| Pentest module | P0 live (Injection hunter), P1 in flight |
-| External integrations | OSV.dev, NVD, npm, PyPI, crates.io, GitHub App, Slack, Joern, FalkorDB |
-| Repo, branch ready | `dev_v3`, Apache 2.0 |
-
-Design-partner pipeline: OSS-maintainer DM templates in [`oss_maintainer_dms.md`](oss_maintainer_dms.md); first pilots targeted Q3 2026.
+```
+Stage 0  ✅  Hardening: /healthz, replay harness, CI matrix, 8% FP-rate gate, threat model
+Stage 1  ✅  5 agents live — Archeologist · Shadow Stalker · Lead Warden · PatchForge · Mini-Verifier
+              Closed-loop verifier · React 19 console · SSE streaming · one-click fix PR
+Stage 2  ⏳  Detonator (eBPF + mitmproxy sandbox) · Sentinel Watcher (registry deltas)
+              Ghost Detector (phantom deps + typosquat) · Postgres swap · billing
+Stage 3  ⏳  M-GRPO trained adapters · Mutant Factory · full Shannon integration
+              SBOM (CycloneDX + SPDX) · SOC2
+Stage 4  ⏳  A2A marketplace · FedRAMP ATO · Series A
+```
 
 ---
 
-## 7. Future scope
+## 16. Security posture
 
-| Horizon | Scope |
-|---|---|
-| **Q3 2026** | 4 remaining Pentest hunters (Auth, AuthZ, XSS, SSRF) · workspace snapshots + resume · GitHub Marketplace listing · FP corpus to 100 · 5 design-partner repos |
-| **Q4 2026** | Detonator (eBPF + mitmproxy sandbox) wired live · PatchForge auto-PR at scale · Postgres + multi-tenant · Stripe billing · SOC2 Type I prep |
-| **2027** | M-GRPO-trained per-agent QLoRA adapters (cloud-GPU runner: Modal/Lambda/RunPod) · Mutant Factory (synthetic attack corpus, 5k+ samples) · Graphiti memory layer · SBOM + SPDX evidence pack · first enterprise deal ($30k+) |
-| **2028+** | A2A agent marketplace (third-party hunters plug in) · Firecracker VM detonators · IDE extensions · multi-region · FedRAMP ATO · Series A |
+Full threat model in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). Highlights:
 
----
-
-## 8. Business model (scalable + sellable)
-
-- **Unit economics flip the SaaS curve.** Inference on customer's box → marginal cost per scan ≈ $0. Competitors bound by cloud GPU spend; we're bound by customer laptop. **Gross margin >95% from day one.**
-- **Three-layer monetisation:** OSS-core (Apache 2.0, adoption funnel) → Pro/Team SaaS ($49/$149 mo, indie + SMB) → **Sentinel Forge** enterprise ($30k+/yr, per-tenant QLoRA adapter trained on customer code in customer VPC; cloud-GPU runner or on-prem appliance). Same precedent: Sentry, Datadog Agent, GitLab.
-- **Pricing ladder:** Free (100 PRs/mo, public repos) → Pro $49 → Team $149 → Enterprise $30k+. Year-1 paid baseline: design-partner pilots → marketplace listing → 10x via GitHub App distribution.
-- **GTM motion:** OSS-maintainer DM funnel (templates ready) → GitHub Marketplace listing (Q3 2026) → demo screencast viral → outbound to FedRAMP-track buyers (regulated wedge).
-- **Why not built by GitHub/Snyk:** local-first kills their delivery model; closed-loop verifier requires a sandbox they don't run; RL adapter needs the FP corpus only we're harvesting.
+* **HMAC + JWT** on every webhook
+* **Background-task offload** — webhook returns 200 OK in <100ms
+* **Prompt-injection defence** — system prompt always wins, JSON mode forced, refusal parser falls back to rule engine
+* **No outbound code transfer** — diff + lockfiles processed locally; only verdict/comment leaves the box (to GitHub)
 
 ---
 
-## 9. Data sovereignty — the long-arc bet
+## 17. Status & contributing
 
-Frontier LLMs are not differentiated by architecture; they are differentiated by **data**. OpenAI's Daybreak coding-agent push and Anthropic's Claude coding mythos both crystallised because vast volumes of developer code, PR reviews, and bug-fix transcripts flowed into their training pipelines. The harness is generic; the corpus is everything. A 70B model with no domain data is inert; a 7B model with the right corpus beats it on the only benchmark that matters — *the customer's own codebase*.
+All five pipeline agents are operationally functional. Highest-leverage contributions:
 
-The current default is a one-way leak: companies pipe proprietary source, internal infra, and unreleased product code into ChatGPT / Claude / Copilot through IDE plugins. By 2027 the largest hidden cost on every enterprise balance sheet will not be cloud GPU spend — it will be **the data they irreversibly gave away**.
+* Attack-pattern PRs to `agents/shadow_stalker/known_patterns.py`
+* False-positive reports against [`docs/false_positives.md`](docs/false_positives.md)
+* Verifier corpora in `tests/fixtures/verifier/`
 
-Sentinel-AI inverts the flow. Because the pipeline runs locally, every scan, every patch, every 👍/👎, every false-positive labelled by a human reviewer stays inside the customer's perimeter. Three compounding consequences:
+## License
 
-1. **Customer-owned corpus → customised models.** Per-tenant QLoRA adapter trained on the customer's coding style, infra conventions, and production traffic shape. The model becomes *theirs* — secure codebases, lower FP rate, verdicts that match their engineering culture, zero IP leakage. This is Sentinel Forge.
-2. **Delta extraction as growth signal.** We never see customer source, but the *diff* between baseline model and tenant adapter (gradient magnitudes, layer activation drift, anonymised attack-signature distributions) is opt-in research fuel. Compounding across the install base = the dataset no SaaS competitor can reconstruct.
-3. **Path to AGI runs through owned data.** The next decade of coding agents will be won by whoever owns the closed-loop "developer wrote → exploit found → patch verified → human labelled" dataset. We are engineered to harvest exactly that loop, ethically.
-
-**Scale advantage — India.** 1.4B population, 5.8M professional developers (NASSCOM 2024), projected largest global dev base by 2027. Sentinel-AI's local-first model means an Indian SMB or solo vibe-coder runs the same pipeline as a Fortune 500 — zero per-seat cloud-GPU drag. We expect early adoption velocity from the Indian developer market; the labelled corpus harvested at population scale becomes a geographic data moat no US/EU SaaS competitor can replicate.
-
-> The model is rented. The data is owned. Sentinel-AI is the only platform engineered around that asymmetry.
-
----
-
-## 10. Team & ask
-
-- **Team:** 2 builders today; founder-market fit = supply-chain security + ADK agent systems + production FastAPI.
-- **Stage:** MVP operational, demo-ready. Seeking design partners + Anthropic Fellows compute (research output: M-GRPO for security agents).
-- **Ask:** Hackathon track — recognition + design-partner intros. Seed track — $750k–$1.5M, 18-month runway to Stage-3 close: M-GRPO trained adapters, first $30k+ enterprise deal, SOC2 Type I, 5 paid Team-tier accounts.
-
-> "Build the loop. Train with M-GRPO. Ship locally. Win the compliance buyers." — the playbook in one line.
+Currently undetermined for public release. Roadmap targets an OSS core + commercial Pro/Enterprise tier. See [`docs/PITCH_NOTES.md` § Licensing](docs/PITCH_NOTES.md#licensing--business-model).

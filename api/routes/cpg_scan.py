@@ -39,6 +39,17 @@ def _clone_repo(repo_url: str, token: Optional[str], dest_dir: str):
 @router.post("/scan-cpg", response_model=CPGScanResponse)
 async def scan_cpg(req: CPGScanRequest):
     repo_url = req.repo_url.strip()
+    
+    # Auto-sanitize PR URL formats (e.g. trailing /pull, /pull/3, /pulls/3)
+    import re
+    pr_match = re.match(r"^(https?://github\.com/[^/]+/[^/]+)/pull(?:s)?(?:/\d+)?/?$", repo_url, re.IGNORECASE)
+    if pr_match:
+        repo_url = pr_match.group(1)
+        
+    repo_url = repo_url.rstrip("/")
+    if repo_url.endswith(".git"):
+        repo_url = repo_url[:-4]
+        
     if not repo_url.startswith("http"):
         repo_url = f"https://github.com/{repo_url}"
         

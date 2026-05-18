@@ -478,6 +478,54 @@ async def scan_pr(req: ScanRequest):
             pf_res = await _pf.handle_request(pf_req)
             patch_result = _safe_json(pf_res.output)
             logger.info(f"[patchforge] status={pf_res.status} success={patch_result.get('success') if patch_result else 'N/A'}")
+            
+            # Stage each candidate fix as pending pair for RL data collection
+            if patch_result and patch_result.get("success"):
+                try:
+                    from storage.rl_store import stage_pending_pair
+                    import difflib
+                    
+                    scan_id = f"sc_{req.repo.replace('/', '-')}_{req.pr_number}"
+                    rl_ids = []
+                    candidates = patch_result.get("candidates") or patch_result.get("all_candidates") or []
+                    for candidate in candidates:
+                        cand_patch = candidate.get("patch", {})
+                        patched_code = cand_patch.get("patched_source", "")
+                        if not patched_code or patched_code == full_source:
+                            # Skip stubs with no actual changes
+                            continue
+                        
+                        # Generate unified diff
+                        a_lines = full_source.splitlines(keepends=True)
+                        b_lines = patched_code.splitlines(keepends=True)
+                        diff = "".join(difflib.unified_diff(a_lines, b_lines, fromfile=f"a/{fname}", tofile=f"b/{fname}"))
+                        
+                        # Prepare patch_meta
+                        patch_meta = {
+                            "strategy": candidate.get("strategy", ""),
+                            "confidence": candidate.get("confidence", 0.0),
+                            "risk": candidate.get("risk", "LOW"),
+                            "breaking_change": candidate.get("breaking_change", False),
+                            "shannon_verdict": patch_result.get("verifier_report", {}).get("shannon_verdict", "FAIL"),
+                            "mini_verifier": patch_result.get("verifier_report", {}).get("mini_verifier", {}),
+                        }
+                        
+                        rl_id = stage_pending_pair(
+                            scan_id=scan_id,
+                            repo=req.repo,
+                            file_path=fname,
+                            original=full_source,
+                            patched=patched_code,
+                            unified_diff=diff,
+                            finding=top_finding,
+                            prompt_ctx=patch_result.get("prompt_context", {}),
+                            patch_meta=patch_meta,
+                        )
+                        rl_ids.append(rl_id)
+                    patch_result["rl_ids"] = rl_ids
+                    logger.info(f"[rl_store] Staged {len(rl_ids)} pending pairs for RL trace generation.")
+                except Exception as rl_exc:
+                    logger.error(f"[rl_store] Failed to stage pending pairs: {rl_exc}")
         else:
             logger.info("[patchforge] BLOCK but no findings from Shadow Stalker — skipping")
 
@@ -620,6 +668,52 @@ async def scan_stream(req: ScanRequest):
                     )
                     pf_res = await _pf.handle_request(pf_req)
                     patch_result = _safe_json(pf_res.output)
+                    
+                    # Stage each candidate fix as pending pair for RL data collection
+                    if patch_result and patch_result.get("success"):
+                        try:
+                            from storage.rl_store import stage_pending_pair
+                            import difflib
+                            
+                            scan_id = f"sc_{req.repo.replace('/', '-')}_{req.pr_number}"
+                            rl_ids = []
+                            candidates = patch_result.get("candidates") or patch_result.get("all_candidates") or []
+                            for candidate in candidates:
+                                cand_patch = candidate.get("patch", {})
+                                patched_code = cand_patch.get("patched_source", "")
+                                
+                                # Generate unified diff
+                                a_lines = full_source.splitlines(keepends=True)
+                                b_lines = patched_code.splitlines(keepends=True)
+                                diff = "".join(difflib.unified_diff(a_lines, b_lines, fromfile=f"a/{fname}", tofile=f"b/{fname}"))
+                                
+                                # Prepare patch_meta
+                                patch_meta = {
+                                    "strategy": candidate.get("strategy", ""),
+                                    "confidence": candidate.get("confidence", 0.0),
+                                    "risk": candidate.get("risk", "LOW"),
+                                    "breaking_change": candidate.get("breaking_change", False),
+                                    "shannon_verdict": patch_result.get("verifier_report", {}).get("shannon_verdict", "FAIL"),
+                                    "mini_verifier": patch_result.get("verifier_report", {}).get("mini_verifier", {}),
+                                }
+                                
+                                rl_id = stage_pending_pair(
+                                    scan_id=scan_id,
+                                    repo=req.repo,
+                                    file_path=fname,
+                                    original=full_source,
+                                    patched=patched_code,
+                                    unified_diff=diff,
+                                    finding=top,
+                                    prompt_ctx=patch_result.get("prompt_context", {}),
+                                    patch_meta=patch_meta,
+                                )
+                                rl_ids.append(rl_id)
+                            patch_result["rl_ids"] = rl_ids
+                            logger.info(f"[rl_store] Stream: Staged {len(rl_ids)} pending pairs.")
+                        except Exception as rl_exc:
+                            logger.error(f"[rl_store] Stream staging failed: {rl_exc}")
+
                     vr = (patch_result or {}).get("verifier_report") or {}
                     yield _sse("stage:patchforge_done", {
                         "success": (patch_result or {}).get("success"),
@@ -976,6 +1070,8 @@ class PatchRequest(BaseModel):
     source_code: str = ""
     filename: str = "unknown"
     repo: str = ""
+    github_token: Optional[str] = None
+    user_email: Optional[str] = None
     llm_provider: Optional[str] = None
     llm_model: Optional[str] = None
     llm_key: Optional[str] = None
@@ -985,20 +1081,36 @@ class PatchRequest(BaseModel):
 async def patch_finding(req: PatchRequest):
     """Call PatchForge on a single finding and return the best fix candidate."""
     owner, repo_name = (req.repo.split("/") + [""])[:2]
+
+    token = get_effective_token(req.github_token, req.user_email)
+    logger.info(f"[patch] req filename={req.filename} repo={req.repo} "
+                f"src_lines={len((req.source_code or '').splitlines())} "
+                f"token={'yes' if token else 'no'}")
     
-    # Resolve token for GitHub fetching if needed
-    token = get_effective_token(None, None) # Use global or env token if user token not in req
-    
-    # If source_code is just a snippet (e.g. < 5 lines or matches evidence), fetch the FULL file
-    # This is CRITICAL because PatchForge needs the full file to generate a proper patch.
-    if len(req.source_code.splitlines()) < 5 or req.repo:
-        logger.info(f"[patch] Source code is short or repo provided. Attempting to fetch full file '{req.filename}' from GitHub.")
+    # If source_code is just a snippet (e.g. < 5 lines), fetch the FULL file.
+    # Otherwise, we use the full source provided by the UI.
+    if len(req.source_code.splitlines()) < 5:
+        logger.info(f"[patch] Source code is short. Attempting to fetch full file '{req.filename}' from GitHub.")
         # Try to get the head ref from history or just use main/master
         ref = "main" 
         full_code = await _fetch_github_file(req.repo, req.filename, ref, token)
         if full_code:
             req.source_code = full_code
-            logger.info(f"[patch] Successfully fetched full file content ({len(full_code)} bytes)")
+            logger.info(f"[patch] Successfully fetched full file content from GitHub ({len(full_code)} bytes)")
+        else:
+            # Local workspace fallback - look under adjacent directories in f:\Hackathons
+            from pathlib import Path
+            parts = req.repo.split('/')
+            last_part = parts[-1] if parts else ""
+            if last_part:
+                local_path = Path("f:/Hackathons") / last_part / req.filename
+                if local_path.exists():
+                    try:
+                        full_code = local_path.read_text(encoding="utf-8", errors="ignore")
+                        req.source_code = full_code
+                        logger.info(f"[patch] Local fallback success: read {len(full_code)} bytes from {local_path}")
+                    except Exception as e:
+                        logger.error(f"[patch] Local fallback read failed for {local_path}: {e}")
 
     pf_req = AgentRequest(
         agent_id="patchforge",
@@ -1019,6 +1131,56 @@ async def patch_finding(req: PatchRequest):
     if not result:
         raise HTTPException(status_code=500, detail="PatchForge returned no output")
     
+    # Stage each candidate fix as pending pair for RL data collection
+    if result and result.get("success"):
+        try:
+            from storage.rl_store import stage_pending_pair
+            import difflib
+            
+            scan_id = f"sc_{req.repo.replace('/', '-')}_{req.filename.replace('/', '-')}"
+            rl_ids = []
+            candidates = result.get("candidates") or result.get("all_candidates") or []
+            finding_dict = _safe_json(req.finding_json) or {}
+            
+            for candidate in candidates:
+                cand_patch = candidate.get("patch", {})
+                patched_code = cand_patch.get("patched_source", "")
+                if not patched_code or patched_code == req.source_code:
+                    # Skip stubs with no actual changes
+                    continue
+                
+                # Generate unified diff
+                a_lines = req.source_code.splitlines(keepends=True)
+                b_lines = patched_code.splitlines(keepends=True)
+                diff = "".join(difflib.unified_diff(a_lines, b_lines, fromfile=f"a/{req.filename}", tofile=f"b/{req.filename}"))
+                
+                # Prepare patch_meta
+                patch_meta = {
+                    "strategy": candidate.get("strategy", ""),
+                    "confidence": candidate.get("confidence", 0.0),
+                    "risk": candidate.get("risk", "LOW"),
+                    "breaking_change": candidate.get("breaking_change", False),
+                    "shannon_verdict": result.get("verifier_report", {}).get("shannon_verdict", "FAIL"),
+                    "mini_verifier": result.get("verifier_report", {}).get("mini_verifier", {}),
+                }
+                
+                rl_id = stage_pending_pair(
+                    scan_id=scan_id,
+                    repo=req.repo,
+                    file_path=req.filename,
+                    original=req.source_code,
+                    patched=patched_code,
+                    unified_diff=diff,
+                    finding=finding_dict,
+                    prompt_ctx=result.get("prompt_context", {}),
+                    patch_meta=patch_meta,
+                )
+                rl_ids.append(rl_id)
+            result["rl_ids"] = rl_ids
+            logger.info(f"[rl_store] /patch staged {len(rl_ids)} pending pairs for RL data collection.")
+        except Exception as rl_exc:
+            logger.error(f"[rl_store] /patch failed to stage pending pairs: {rl_exc}")
+
     # Include the original source code used for generation so UI can diff correctly
     result["original_source"] = req.source_code
     return result

@@ -7,6 +7,8 @@ const TAB_LABELS = {
   pentest: 'Pentest',
   repo: 'Repository',
   watch: 'Watching',
+  github: 'GitHub Integration',
+  dataCollection: 'RL Data Collection',
   history: 'History',
   analytics: 'Analytics',
   tests: 'Tests',
