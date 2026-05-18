@@ -39,25 +39,35 @@ Sentinel-AI is a coordinated **immune system** — five specialized AI agents, e
 
 ```mermaid
 flowchart LR
-    PR[GitHub PR<br/>opened/synced] --> WH[Webhook Receiver<br/>HMAC verified]
-    WH --> FETCH[Fetch diff + lockfiles<br/>via installation token]
+    Dev[Developer / Vibe-coder] -->|opens PR| GH[GitHub App Webhook]
+    GH -->|HMAC + JWT| API[FastAPI :8005]
+    API --> ORCH[Orchestrator<br/>asyncio.gather + SSE]
 
-    FETCH --> ARCH[Archeologist<br/>CVE + maintainer trust]
-    FETCH --> SS[Shadow Stalker<br/>AST + CFG/CPG static]
+    subgraph AGENTS[8-Agent Pipeline]
+        direction TB
+        A1[Archeologist<br/>CVE + One-Week Rule]
+        A2[ShadowStalker<br/>AST + CPG + Vibe smells]
+        A3[LeadWarden<br/>Rule engine + LLM verdict]
+        A4[PatchForge<br/>Fix candidates]
+        A5[MiniVerifier<br/>Re-run exploit vs patch]
+        A6[Detonator<br/>eBPF sandbox - S2]
+        A7[Sentinel Watcher<br/>Registry monitor - S2]
+        A8[Ghost Detector<br/>Phantom deps - S2]
+        A1 --> A3
+        A2 --> A3
+        A3 -->|BLOCK / HIGH| A4
+        A4 --> A5
+    end
 
-    ARCH --> LW[Lead Warden<br/>rule engine + LLM verdict]
-    SS --> LW
+    ORCH --> AGENTS
+    AGENTS --> LLM[LLM Gateway<br/>AISA / vLLM / Ollama]
+    AGENTS --> DB[(SQLite<br/>analysis_logs<br/>ground_truth<br/>pentest_sessions)]
+    AGENTS --> PT[Pentest Module<br/>Source -> Probe -> Hunt -> Validate -> Report]
 
-    LW -->|APPROVE| OUT1[PR comment APPROVE]
-    LW -->|REVIEW| OUT2[PR comment REVIEW]
-    LW -->|BLOCK or HIGH| PF[PatchForge<br/>generate fix candidates]
-
-    PF --> MV[Mini-Verifier<br/>blocklist + Shannon hook]
-    MV -->|fully_verified| FIX[One-click<br/>remediation PR]
-    MV -->|fail| RETRY[Demote candidate<br/>retry / surface to human]
-
-    LW --> DB[(SQLite<br/>analysis_logs +<br/>ground_truth_labels)]
-    FIX --> DB
+    A5 -->|verified fix| FIXPR[One-click Fix PR]
+    A3 -->|verdict + reasoning| UI[React Console<br/>SSE live phases]
+    UI -->|opt-in 👍/👎| DB
+    DB -.->|federated anon signatures| RLHF[M-GRPO Adapter - S3]
 ```
 
 The architecture pulls the seam closed: static review *and* behavioral verification, both at PR time, both local-first.
